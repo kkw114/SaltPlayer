@@ -12,6 +12,7 @@ const NetEaseUI = (() => {
     let userIsVip = false; // Whether user is VIP
     let likedSongIds = new Set(); // Liked song IDs
     let dailyTracksCache = null;
+    let likedSongsPlaylistId = null; // 喜欢的音乐歌单ID
 
     // User info cache
     function getCachedUserInfo() {
@@ -259,6 +260,11 @@ const NetEaseUI = (() => {
         if (!data || !data.playlist) {
             container.innerHTML = '<div class="netease-empty">加载失败</div>';
             return;
+        }
+
+        // Store liked songs playlist ID (first playlist)
+        if (data.playlist.length > 0) {
+            likedSongsPlaylistId = data.playlist[0].id;
         }
 
         container.innerHTML = '';
@@ -509,7 +515,7 @@ const NetEaseUI = (() => {
 
         // Play all button
         document.getElementById('netease-play-all-btn').addEventListener('click', function() {
-            playNeteaseTracks(allTracks, 0, pl.name);
+            playNeteaseTracks(allTracks, 0, pl.name, pl.id);
         });
 
         // Render tracks
@@ -525,7 +531,7 @@ const NetEaseUI = (() => {
                     '<div class="netease-track-artist">' + escapeHtml(converted.artist) + '</div>' +
                 '</div>' +
                 '<span class="netease-track-duration">' + formatDuration(converted.duration) + '</span>';
-            item.addEventListener('click', function() { playNeteaseTracks(allTracks, index, pl.name); });
+            item.addEventListener('click', function() { playNeteaseTracks(allTracks, index, pl.name, pl.id); });
             tracksEl.appendChild(item);
         });
     }
@@ -698,9 +704,11 @@ const NetEaseUI = (() => {
     }
 
     // Play NetEase tracks
-    async function playNeteaseTracks(tracks, startIndex, contextLabel) {
+    var currentPlaylistId = null;
+    async function playNeteaseTracks(tracks, startIndex, contextLabel, playlistId) {
         if (!tracks || !tracks.length) return;
         if (contextLabel) currentContextLabel = contextLabel;
+        if (playlistId) currentPlaylistId = playlistId;
         var convertedTracks = tracks.map(function(t) { return NetEaseAPI.convertTrack(t); });
 
         // Get song URLs for all tracks
@@ -821,6 +829,8 @@ const NetEaseUI = (() => {
 
     // Get current context label
     function getContextLabel() { return currentContextLabel; }
+    function getCurrentPlaylistId() { return currentPlaylistId; }
+    function getLikedSongsPlaylistId() { return likedSongsPlaylistId; }
 
     // Login modal
     function showLoginModal() {
@@ -1056,6 +1066,7 @@ const NetEaseUI = (() => {
     return {
         init, hideSearchResults, restoreLogin, updateLoginUI,
         playNeteaseTracks, loadPlaylistDetail, loadDailyRecommend, doSearch, getContextLabel,
-        updateQualityDisplay, isVipUser, getLikedSongs, notifyLikeChanged
+        updateQualityDisplay, isVipUser, getLikedSongs, notifyLikeChanged,
+        getCurrentPlaylistId, getLikedSongsPlaylistId
     };
 })();

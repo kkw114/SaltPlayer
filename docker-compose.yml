@@ -9,3 +9,12 @@ services:
       - MUSIC_DIR=/music
       - PORT=3000
     restart: unless-stopped
+    networks:
+      - saltplayer-net
+
+networks:
+  saltplayer-net:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: "fd00:saltplayer::/64"

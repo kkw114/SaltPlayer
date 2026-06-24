@@ -12,6 +12,55 @@ const App = (() => {
     let localDirHandle = null;
     let localSubfolders = [];
     let currentLabel = 'SaltLink';
+    let lastStateUpdate = 0;
+
+    function postState() {
+        var t = PlaylistManager.getCurrentTrack();
+        if (!t) return;
+        var lyrics = typeof LyricsEngine !== 'undefined' ? LyricsEngine.lyrics : [];
+        var currentLyricIndex = typeof LyricsEngine !== 'undefined' ? LyricsEngine.currentLine : -1;
+        // 获取当前主题色
+        var rootStyle = getComputedStyle(document.documentElement);
+        var accentColor = rootStyle.getPropertyValue('--rnp-accent-color').trim() || 'rgb(120,120,120)';
+        var accentRgb = rootStyle.getPropertyValue('--rnp-accent-color-rgb').trim() || '120,120,120';
+        var shade2 = rootStyle.getPropertyValue('--rnp-accent-color-shade-2').trim() || 'rgb(255,255,255)';
+        var shade2Rgb = rootStyle.getPropertyValue('--rnp-accent-color-shade-2-rgb').trim() || '255,255,255';
+        // 获取调色板 - 压缩为简单格式
+        var palette = window._rnpPalette || null;
+        var paletteCompact = null;
+        if (palette && palette.length > 0) {
+            paletteCompact = palette.map(function(c) { return [c[0], c[1], c[2]]; });
+        }
+        // 获取字体设置
+        var customFontFamily = typeof Settings !== 'undefined' ? Settings.get('customFontFamily') || '' : '';
+        // 处理封面URL - 使用代理避免CORS问题
+        var coverUrl = t.coverUrl || '';
+        if (coverUrl && coverUrl.startsWith('http')) {
+            coverUrl = '/api/netease/cover?url=' + encodeURIComponent(coverUrl);
+        }
+        var state = {
+            title: t.title || t.name || '',
+            artist: t.artist || '',
+            coverUrl: coverUrl,
+            rawCoverUrl: t.coverUrl || '',
+            currentTime: typeof AudioEngine !== 'undefined' ? AudioEngine.getPosition() : 0,
+            duration: typeof AudioEngine !== 'undefined' ? AudioEngine.getDuration() : 0,
+            lyrics: lyrics.map(function(l) { return { original: l.original || '', translation: l.translation || '' }; }),
+            currentLyricIndex: currentLyricIndex,
+            playing: typeof AudioEngine !== 'undefined' ? AudioEngine.getIsPlaying() : false,
+            accentColor: accentColor,
+            accentRgb: accentRgb,
+            shade2: shade2,
+            shade2Rgb: shade2Rgb,
+            palette: paletteCompact,
+            customFontFamily: customFontFamily
+        };
+        fetch('/api/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(state)
+        }).catch(function() {});
+    }
 
     function fmtRate(r) {
         var s = r.toFixed(2);
@@ -189,6 +238,8 @@ const App = (() => {
             if (typeof NetEaseUI !== 'undefined') {
                 NetEaseUI.restoreLogin();
                 UI.updateSourceTab('netease');
+                // Load liked songs
+                if (typeof loadLikedSongs === 'function') loadLikedSongs();
                 setTimeout(function() {
                     NetEaseUI.loadDailyRecommend().then(function() {
                         NetEaseAPI.getDailyRecommend().then(function(data) {
@@ -335,6 +386,70 @@ const App = (() => {
             });
         }
 
+        // Like button (NetEase only)
+        var btnLike = document.getElementById('btn-like');
+        var iconHeart = document.getElementById('icon-heart');
+        var iconHeartFilled = document.getElementById('icon-heart-filled');
+        var likedSongIds = new Set();
+
+        function updateLikeButton(track) {
+            if (!btnLike) return;
+            if (playbackSourceMode === 'netease' && track && track.neteaseId) {
+                // Only show like button for daily recommend or liked songs playlist
+                var folderName = els.folderName ? els.folderName.textContent : '';
+                var isDaily = folderName.indexOf('每日推荐') >= 0;
+                var isLikedPlaylist = (typeof NetEaseUI !== 'undefined' && NetEaseUI.getCurrentPlaylistId && NetEaseUI.getLikedSongsPlaylistId) &&
+                    NetEaseUI.getCurrentPlaylistId() === NetEaseUI.getLikedSongsPlaylistId();
+                if (isDaily || isLikedPlaylist) {
+                    btnLike.classList.remove('hidden');
+                    var isLiked = likedSongIds.has(track.neteaseId);
+                    iconHeart.classList.toggle('hidden', isLiked);
+                    iconHeartFilled.classList.toggle('hidden', !isLiked);
+                } else {
+                    btnLike.classList.add('hidden');
+                }
+            } else {
+                btnLike.classList.add('hidden');
+            }
+        }
+
+        if (btnLike) {
+            btnLike.addEventListener('click', async function() {
+                var track = PlaylistManager.getCurrentTrack();
+                if (!track || !track.neteaseId) return;
+                var isLiked = likedSongIds.has(track.neteaseId);
+                try {
+                    await NetEaseAPI.likeSong(track.neteaseId, !isLiked);
+                    if (isLiked) {
+                        likedSongIds.delete(track.neteaseId);
+                    } else {
+                        likedSongIds.add(track.neteaseId);
+                    }
+                    updateLikeButton(track);
+                    showToast(isLiked ? '已取消喜欢' : '已添加到喜欢');
+                } catch(e) {
+                    showToast('操作失败');
+                }
+            });
+        }
+
+        // Load liked songs when switching to NetEase
+        async function loadLikedSongs() {
+            try {
+                var accountData = await NetEaseAPI.getUserAccount();
+                if (accountData && accountData.profile) {
+                    var likelistData = await NetEaseAPI.getLikelist(accountData.profile.userId);
+                    if (likelistData && likelistData.ids) {
+                        likedSongIds = new Set(likelistData.ids);
+                    }
+                }
+            } catch(e) {}
+        }
+
+        // Expose for external use
+        window.loadLikedSongs = loadLikedSongs;
+        window.updateLikeButton = updateLikeButton;
+
         // Double-click track info to copy song info
         var trackInfo = document.querySelector('.track-info');
         if (trackInfo) {
@@ -373,6 +488,8 @@ const App = (() => {
                 updateFavicon(t.coverUrl);
                 // Update Windows media controls
                 updateMediaSession(t);
+                // Sync state to mini mode
+                postState();
             }
             // Update NetEase quality display
             if (sourceMode === 'netease' && typeof NetEaseUI !== 'undefined') {
@@ -380,7 +497,15 @@ const App = (() => {
             }
         });
         AudioEngine.on('pause', function() { UI.updatePlayButton(false); document.title = 'SaltPlayer'; updateFavicon(null); });
-        AudioEngine.on('timeupdate', function(d) { UI.updateProgress(d.current, d.duration); LyricsEngine.update(d.current * 1000); });
+        AudioEngine.on('timeupdate', function(d) {
+            UI.updateProgress(d.current, d.duration);
+            LyricsEngine.update(d.current * 1000);
+            // Throttle state updates to every 500ms
+            if (Date.now() - lastStateUpdate > 500) {
+                postState();
+                lastStateUpdate = Date.now();
+            }
+        });
         AudioEngine.on('end', function() {
             if (PlaylistManager.next(false) === -1) UI.updatePlayButton(false);
         });
@@ -464,7 +589,11 @@ const App = (() => {
         Settings.set('lastSource', mode);
         UI.updateSourceTab(mode);
         if (mode === 'default') { loadDefaultSource(); }
-        else if (mode === 'netease') { UI.updateSourceLabel('网易云音乐', 'netease'); }
+        else if (mode === 'netease') {
+            UI.updateSourceLabel('网易云音乐', 'netease');
+            // Load liked songs when switching to NetEase
+            if (typeof loadLikedSongs === 'function') loadLikedSongs();
+        }
         else if (mode === 'local') { if (localDirHandle) renderLocalFolders(); }
     }
 
@@ -1409,6 +1538,8 @@ const App = (() => {
         UI.updateTrackInfo(track);
         UI.updateAlbumArt(track.coverUrl);
         LyricsEngine.reset();
+        // Update like button
+        if (typeof updateLikeButton === 'function') updateLikeButton(track);
 
         // Update NetEase quality display and re-fetch URL if quality changed
         if (playbackSourceMode === 'netease' && typeof NetEaseAPI !== 'undefined' && typeof NetEaseUI !== 'undefined') {

@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaltPlayer Mini</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: transparent;
+            color: #fff;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .mini-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            gap: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+        .bg-layer {
+            position: absolute;
+            top: -20px; left: -20px; right: -20px; bottom: -20px;
+            background-size: cover;
+            background-position: center;
+            z-index: 0;
+            transition: filter 0.3s ease, opacity 0.3s ease;
+        }
+        .bg-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 1;
+        }
+        .mini-container > *:not(.bg-layer):not(.bg-overlay) {
+            position: relative;
+            z-index: 2;
+        }
+        .top-section {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .album-cover {
+            width: 70px;
+            height: 70px;
+            border-radius: 8px;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: rgba(255,255,255,0.1);
+        }
+        .track-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .track-title {
+            font-size: 15px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .track-artist {
+            font-size: 12px;
+            color: rgba(255,255,255,0.7);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .progress-row {
+            display: flex;
+            align-items: center;
+        }
+        .time-label {
+            font-size: 12px;
+            color: rgba(255,255,255,0.6);
+            width: 68px;
+            min-width: 68px;
+            max-width: 68px;
+            white-space: nowrap;
+            padding-right: 6px;
+            margin-right: 6px;
+            border-right: 1px solid rgba(255,255,255,0.2);
+            font-variant-numeric: tabular-nums;
+            text-align: right;
+            flex-shrink: 0;
+        }
+        .progress-bar {
+            flex: 1;
+            height: 4px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 2px;
+            position: relative;
+            transition: height 0.2s;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #fff;
+            border-radius: 2px;
+            width: 0%;
+            transition: width 0.5s linear;
+        }
+        .progress-fill.glowing {
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), #fff);
+        }
+        .lyrics-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: var(--lyrics-align, flex-start);
+            text-align: var(--lyrics-text-align, left);
+            overflow: hidden;
+            gap: 4px;
+            padding: 8px 0;
+        }
+        .lyric-current {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--lyric-color, #fff);
+            line-height: 1.4;
+            transition: color 0.5s ease, transform 0.3s ease, opacity 0.3s ease;
+        }
+        .lyric-translation {
+            font-size: 12px;
+            color: var(--lyric-color, rgba(255,255,255,0.6));
+            line-height: 1.3;
+            transition: opacity 0.5s ease;
+        }
+        .lyric-prev, .lyric-next {
+            font-size: 13px;
+            color: var(--lyric-color, rgba(255,255,255,0.4));
+            line-height: 1.3;
+            transition: opacity 0.5s ease;
+        }
+        .lyric-prev { opacity: 0.5; }
+        .lyric-next { opacity: 0.5; }
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="mini-container" id="mini-container">
+        <div class="bg-layer" id="bg-layer"></div>
+        <div class="bg-overlay" id="bg-overlay"></div>
+        <div class="top-section">
+            <img id="album-cover" class="album-cover" src="" alt="">
+            <div class="track-info">
+                <div class="track-title" id="track-title">-</div>
+                <div class="track-artist" id="track-artist">-</div>
+                <div class="progress-row">
+                    <span class="time-label" id="time-label">0:00/0:00</span>
+                    <div class="progress-bar" id="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="lyrics-section" id="lyrics-section"></div>
+    </div>
+
+    <script>
+        let currentData = {};
+
+        function formatTime(s) {
+            if (!s || s === Infinity) return '0:00';
+            var m = Math.floor(s / 60);
+            var sec = Math.floor(s % 60);
+            return m + ':' + (sec < 10 ? '0' : '') + sec;
+        }
+
+        async function fetchState() {
+            try {
+                const resp = await fetch('/api/state');
+                if (!resp.ok) return;
+                const data = await resp.json();
+                currentData = data;
+                updateUI(data);
+                applyMiniSettings();
+            } catch (e) {
+                console.error('Fetch error:', e);
+            }
+        }
+
+        function updateUI(data) {
+            document.getElementById('track-title').textContent = data.title || '-';
+            document.getElementById('track-artist').textContent = data.artist || '-';
+            // 使用原始封面URL显示封面图片（支持跨域）
+            document.getElementById('album-cover').src = data.rawCoverUrl || data.coverUrl || '';
+            // 更新主题色
+            if (data.accentColor) {
+                document.documentElement.style.setProperty('--rnp-accent-color', data.accentColor);
+                document.documentElement.style.setProperty('--rnp-accent-color-rgb', data.accentRgb || '120,120,120');
+            }
+            // 进度
+            const current = formatTime(data.currentTime);
+            const duration = formatTime(data.duration);
+            document.getElementById('time-label').textContent = current + ' / ' + duration;
+            if (data.duration > 0) {
+                document.getElementById('progress-fill').style.width = (data.currentTime / data.duration * 100) + '%';
+            }
+
+            // 歌词
+            const settings = loadMiniSettings();
+            const lyricsSection = document.getElementById('lyrics-section');
+            if (data.lyrics && data.currentLyricIndex >= 0 && lyricsSection) {
+                const idx = data.currentLyricIndex;
+                const lyrics = data.lyrics;
+                const lineHeight = 28;
+                const sectionHeight = lyricsSection.clientHeight || 200;
+                const totalLines = Math.max(2, Math.floor(sectionHeight / lineHeight));
+                
+                lyricsSection.innerHTML = '';
+                
+                // 只显示当前句和未播放的歌词（共totalLines句）
+                for (let i = 0; i < totalLines; i++) {
+                    const lyricIdx = idx + i;
+                    if (lyricIdx < lyrics.length) {
+                        // 跳过空歌词行
+                        if (!lyrics[lyricIdx]?.original && !lyrics[lyricIdx]?.translation) continue;
+                        
+                        const el = document.createElement('div');
+                        if (i === 0) {
+                            el.className = 'lyric-current';
+                            el.textContent = lyrics[lyricIdx]?.original || '';
+                            el.style.marginBottom = '0';
+                        } else {
+                            el.className = 'lyric-next';
+                            const opacityStep = 0.6 / Math.max(totalLines - 1, 1);
+                            el.style.opacity = Math.max(0.3, 1 - (i * opacityStep));
+                            el.textContent = lyrics[lyricIdx]?.original || '';
+                            el.style.marginBottom = '0';
+                        }
+                        lyricsSection.appendChild(el);
+                        
+                        // 翻译单独一行（贴在原句下）
+                        if (settings.showTranslation !== false && lyrics[lyricIdx]?.translation) {
+                            const transEl = document.createElement('div');
+                            transEl.className = 'lyric-translation';
+                            transEl.textContent = lyrics[lyricIdx].translation;
+                            transEl.style.marginBottom = (settings.lyricSpacing || 4) + 'px';
+                            if (i > 0) {
+                                const opacityStep = 0.6 / Math.max(totalLines - 1, 1);
+                                transEl.style.opacity = Math.max(0.3, 1 - (i * opacityStep));
+                            }
+                            lyricsSection.appendChild(transEl);
+                        } else {
+                            // 没有翻译时给原句加间距
+                            el.style.marginBottom = (settings.lyricSpacing || 4) + 'px';
+                        }
+                    }
+                }
+            }
+        }
+
+        function loadMiniSettings() {
+            try { return JSON.parse(localStorage.getItem('mini-settings') || '{}'); }
+            catch(e) { return {}; }
+        }
+
+        function getAccentColor() {
+            return currentData.accentColor || 'rgb(120,120,120)';
+        }
+
+        function getAccentRgb() {
+            return currentData.accentRgb || '120,120,120';
+        }
+
+        // HSL颜色转换
+        function rgb2Hsl(r, g, b) {
+            r /= 255; g /= 255; b /= 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            let h, s, l = (max + min) / 2;
+            if (max === min) {
+                h = s = 0;
+            } else {
+                const d = max - min;
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                switch (max) {
+                    case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                    case g: h = (b - r) / d + 2; break;
+                    case b: h = (r - g) / d + 4; break;
+                }
+                h /= 6;
+            }
+            return [h, s, l];
+        }
+
+        function hsl2Rgb(h, s, l) {
+            let r, g, b;
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+
+        // 根据沉浸主题色模式计算shade-2颜色
+        function getShade2Color(r, g, b) {
+            const s = loadMiniSettings();
+            const variant = s.immersiveColor || 'off';
+            if (variant === 'off') return 'rgb(255,255,255)';
+            
+            const [h, sat, l] = rgb2Hsl(r, g, b);
+            let shade2;
+            if (variant === 'primary') {
+                // 鲜艳：更饱和、更亮
+                shade2 = hsl2Rgb(h, Math.min(sat + 0.15, 1), Math.min(l + 0.3, 0.92));
+            } else if (variant === 'secondary') {
+                // 柔和：降低饱和度，暖色调
+                shade2 = hsl2Rgb(h, Math.max(sat * 0.4, 0.15), Math.min(l + 0.4, 0.95));
+            } else if (variant === 'tertiary') {
+                // 偏色：色相偏移
+                shade2 = hsl2Rgb((h + 0.15) % 1, Math.min(sat * 0.9, 0.8), Math.min(l + 0.25, 0.9));
+            } else {
+                shade2 = hsl2Rgb(h, Math.min(sat * 0.5, 0.5), Math.min(l + 0.35, 0.95));
+            }
+            return 'rgb(' + shade2[0] + ',' + shade2[1] + ',' + shade2[2] + ')';
+        }
+
+        // 渐变效果 - 使用调色板生成动态渐变
+        function getGradientFromPalette(palette) {
+            if (!palette || palette.length < 2) {
+                return 'linear-gradient(-45deg, #333, #666)';
+            }
+            const colors = palette.slice(0, 6).map(([r, g, b]) => 'rgb(' + r + ',' + g + ',' + b + ')');
+            return 'linear-gradient(-45deg, ' + colors.join(',') + ')';
+        }
+
+        function applyMiniSettings() {
+            const s = loadMiniSettings();
+            const bgLayer = document.getElementById('bg-layer');
+            const bgOverlay = document.getElementById('bg-overlay');
+            if (!bgLayer || !bgOverlay) return;
+
+            const coverUrl = currentData.coverUrl || '';
+            const accentRgb = getAccentRgb().split(',').map(Number);
+            const accent = getAccentColor();
+            const displayColor = getShade2Color(accentRgb[0], accentRgb[1], accentRgb[2]);
+            const palette = currentData.palette || null;
+
+            // 重置样式
+            bgLayer.style.cssText = 'position:absolute;top:-20px;left:-20px;right:-20px;bottom:-20px;background-size:cover;background-position:center;z-index:0;';
+            bgOverlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:1;';
+
+            // 设置背景图片
+            if (coverUrl && s.bgType !== 'none' && s.bgType !== 'solid') {
+                bgLayer.style.backgroundImage = 'url(' + coverUrl + ')';
+            }
+
+            // 模糊背景
+            if (s.bgType === 'blur') {
+                if (!coverUrl) {
+                    bgLayer.style.backgroundColor = 'rgba(20,20,20,0.7)';
+                }
+                const blurVal = s.bgBlur || 40;
+                bgLayer.style.filter = 'blur(' + blurVal + 'px)';
+                bgLayer.style.transform = 'scale(1.1)';
+                const dim = (s.blurDim || 55) / 100;
+                const opacity = (s.blurOpacity || 100) / 100;
+                bgOverlay.style.background = 'rgba(0,0,0,' + dim + ')';
+                bgOverlay.style.opacity = opacity;
+            }
+
+            // 渐变背景 - 使用调色板生成动态渐变
+            if (s.bgType === 'gradient') {
+                if (palette && palette.length >= 2) {
+                    var filterBright = s.dynamicGradientFilterBright !== false;
+                    var filteredPalette = palette;
+                    if (filterBright) {
+                        filteredPalette = palette.filter(function(c) {
+                            var lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+                            return lum < 200 && lum > 30;
+                        });
+                        if (filteredPalette.length < 2) filteredPalette = palette;
+                    }
+                    var gradient = getGradientFromPalette(filteredPalette);
+                    bgLayer.style.backgroundImage = gradient;
+                } else {
+                    bgLayer.style.backgroundImage = 'linear-gradient(135deg, rgba(100,100,200,0.5), rgba(200,100,150,0.5))';
+                }
+                bgLayer.style.backgroundSize = '400% 400%';
+                bgLayer.style.animation = 'gradientShift ' + (s.dynamicGradientSpeed || 15) + 's ease infinite';
+                bgLayer.style.filter = 'blur(' + (s.dynamicGradientBlur || 20) + 'px)';
+                bgLayer.style.transform = 'scale(1.1)';
+                bgOverlay.style.background = 'rgba(0,0,0,' + ((s.dynamicGradientDarken || 30) / 100) + ')';
+                bgOverlay.style.opacity = (s.dynamicGradientOpacity || 100) / 100;
+            }
+
+            // 纯色背景
+            if (s.bgType === 'solid') {
+                bgLayer.style.backgroundImage = 'none';
+                bgLayer.style.filter = 'none';
+                var color = s.solidColor || '#1a1a2e';
+                if (s.solidFollowAccent && s.immersiveColor !== 'off') {
+                    color = accent;
+                }
+                bgOverlay.style.background = color;
+                bgOverlay.style.opacity = (s.solidOpacity || 100) / 100;
+                // 压暗效果：在bgOverlay上叠加黑色半透明
+                var dim = (s.solidDim || 55) / 100;
+                bgOverlay.style.background = 'linear-gradient(rgba(0,0,0,' + (dim * 0.7) + '), rgba(0,0,0,' + (dim * 0.7) + ')), ' + color;
+            }
+
+            // 无背景
+            if (s.bgType === 'none') {
+                bgLayer.style.backgroundImage = 'none';
+                bgLayer.style.filter = 'none';
+                bgOverlay.style.background = 'rgba(0,0,0,0.8)';
+            }
+
+            // 歌词颜色和对齐
+            const lyricsSection = document.getElementById('lyrics-section');
+            if (lyricsSection) {
+                lyricsSection.style.display = s.showLyrics === false ? 'none' : '';
+                if (s.immersiveColor !== 'off') {
+                    lyricsSection.style.setProperty('--lyric-color', displayColor);
+                } else {
+                    lyricsSection.style.removeProperty('--lyric-color');
+                }
+                const align = s.lyricAlign || 'left';
+                const alignMap = { left: 'flex-start', center: 'center', right: 'flex-end' };
+                const textAlignMap = { left: 'left', center: 'center', right: 'right' };
+                lyricsSection.style.setProperty('--lyrics-align', alignMap[align]);
+                lyricsSection.style.setProperty('--lyrics-text-align', textAlignMap[align]);
+            }
+
+            // 歌手、标题、时间、进度条变色
+            const artistEl = document.querySelector('.track-artist');
+            const titleEl = document.querySelector('.track-title');
+            const timeEl = document.getElementById('time-label');
+            const progressFill = document.getElementById('progress-fill');
+            if (s.immersiveColor !== 'off') {
+                if (artistEl) artistEl.style.color = displayColor;
+                if (titleEl) titleEl.style.color = displayColor;
+                if (timeEl) timeEl.style.color = displayColor;
+                if (progressFill) progressFill.style.background = displayColor;
+            } else {
+                if (artistEl) artistEl.style.color = '';
+                if (titleEl) titleEl.style.color = '';
+                if (timeEl) timeEl.style.color = '';
+                if (progressFill) progressFill.style.background = '';
+            }
+
+            // 进度条
+            const progressBar = document.getElementById('progress-bar');
+            if (progressBar) {
+                progressBar.style.height = s.progressStyle === 'thick' ? '8px' : '4px';
+            }
+            if (progressFill) {
+                progressFill.classList.toggle('glowing', s.progressGlow === true);
+            }
+
+            // 字体设置
+            const miniFont = s.miniFont || 'default';
+            if (miniFont === 'system') {
+                document.body.style.fontFamily = 'Inter, sans-serif';
+            } else if (miniFont && miniFont !== 'default') {
+                // 加载自定义字体
+                loadMiniFont(miniFont);
+                document.body.style.fontFamily = '"' + miniFont + '", Inter, sans-serif';
+            } else {
+                // 跟随主播放器 - 从主播放器状态获取字体
+                if (currentData.customFontFamily) {
+                    loadMiniFont(currentData.customFontFamily);
+                    document.body.style.fontFamily = '"' + currentData.customFontFamily + '", Inter, sans-serif';
+                } else {
+                    document.body.style.fontFamily = '';
+                }
+            }
+        }
+
+        // 加载字体
+        async function loadMiniFont(fontName) {
+            if (!fontName) return;
+            if (document.getElementById('mini-font-' + fontName.toLowerCase().replace(/[^a-z0-9]/g, ''))) return;
+            try {
+                const resp = await fetch('/api/fonts');
+                const fonts = await resp.json();
+                const found = fonts.find(f => f.replace(/\.[^.]+$/, '') === fontName);
+                if (found) {
+                    const ext = found.split('.').pop().toLowerCase();
+                    const fmt = ext === 'ttf' ? 'truetype' : ext === 'otf' ? 'opentype' : ext === 'woff2' ? 'woff2' : 'woff';
+                    const style = document.createElement('style');
+                    style.id = 'mini-font-' + fontName.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    style.textContent = '@font-face { font-family: "' + fontName + '"; src: url("/fonts/' + found + '") format("' + fmt + '"); }';
+                    document.head.appendChild(style);
+                }
+            } catch(e) {}
+        }
+
+        // Listen for settings changes
+        window.addEventListener('storage', function(e) {
+            if (e.key === 'mini-settings') applyMiniSettings();
+        });
+        
+        window._lastSettings = JSON.stringify(loadMiniSettings());
+        setInterval(function() {
+            try {
+                const s = JSON.stringify(loadMiniSettings());
+                if (s !== window._lastSettings) {
+                    window._lastSettings = s;
+                    applyMiniSettings();
+                }
+            } catch(e) {}
+        }, 500);
+
+        // Poll for state updates
+        setInterval(fetchState, 500);
+        fetchState();
+    </script>
+</body>
+</html>

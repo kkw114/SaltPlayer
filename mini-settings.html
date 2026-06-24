@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaltPlayer Mini 设置</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --rnp-accent-color: rgb(120,120,120);
+            --rnp-accent-color-rgb: 120,120,120;
+            --rnp-accent-color-shade-2: rgb(255,255,255);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: rgba(10,10,10,0.95);
+            color: #fff;
+            width: 100%;
+            min-height: 100vh;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .header h2 { font-size: 15px; font-weight: 600; flex: 1; text-align: center; margin-right: 40px; }
+        .btn-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: transparent;
+            border: none;
+            color: rgba(255,255,255,0.5);
+            font-size: 12px;
+            cursor: pointer;
+            font-family: inherit;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        .btn-back:hover { color: #fff; background: rgba(255,255,255,0.08); }
+        .settings-content { padding: 8px 0; }
+        .settings-group-title {
+            font-size: 11px;
+            color: rgba(255,255,255,0.35);
+            padding: 12px 16px 4px;
+            font-weight: 600;
+        }
+        .tabs {
+            display: flex;
+            padding: 4px;
+            gap: 2px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .tab {
+            flex: 1;
+            padding: 8px 0;
+            border: none;
+            background: transparent;
+            color: rgba(255,255,255,0.4);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+            border-radius: 6px;
+        }
+        .tab:hover { color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.04); }
+        .tab.active {
+            color: var(--rnp-accent-color-shade-2);
+            background: rgba(var(--rnp-accent-color-rgb), 0.15);
+        }
+        .settings-group-title {
+            font-size: 11px;
+            color: rgba(255,255,255,0.35);
+            padding: 12px 16px 4px;
+            font-weight: 600;
+        }
+        .settings-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            min-height: 40px;
+        }
+        .settings-label { font-size: 13px; color: rgba(255,255,255,0.8); }
+        .settings-select-group {
+            display: flex;
+            gap: 4px;
+        }
+        .settings-select-btn {
+            padding: 6px 12px;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.6);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        .settings-select-btn:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
+        .settings-select-btn.selected {
+            background: rgba(var(--rnp-accent-color-rgb), 0.2);
+            border-color: rgba(var(--rnp-accent-color-rgb), 0.4);
+            color: var(--rnp-accent-color-shade-2);
+        }
+        .settings-select {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            color: #fff;
+            padding: 7px 12px;
+            font-size: 12px;
+            outline: none;
+            font-family: inherit;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .settings-select:focus { border-color: rgba(var(--rnp-accent-color-rgb), 0.5); }
+        .settings-select option { background: #222; color: #fff; }
+        .mini-font-select {
+            max-width: 140px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+        .mini-font-select {
+            max-width: 140px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+        .settings-slider {
+            width: 120px;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(255,255,255,0.15);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+        .settings-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: #fff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+        }
+        .settings-color {
+            width: 32px;
+            height: 24px;
+            padding: 2px;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 6px;
+            background: transparent;
+            cursor: pointer;
+            -webkit-appearance: none;
+        }
+        .settings-color::-webkit-color-swatch-wrapper { padding: 0; }
+        .settings-color::-webkit-color-swatch { border: none; border-radius: 4px; }
+        .settings-sep {
+            border-top: 1px solid rgba(255,255,255,0.06);
+            margin: 4px 0;
+        }
+        .slider-value {
+            font-size: 11px;
+            color: rgba(255,255,255,0.3);
+            min-width: 35px;
+            text-align: right;
+            margin-left: 8px;
+        }
+        .settings-row.slider-row {
+            flex-wrap: wrap;
+        }
+        .slider-wrapper {
+            display: flex;
+            align-items: center;
+            width: 100%;
+        }
+        .settings-toggle {
+            position: relative;
+            width: 40px;
+            height: 22px;
+            background: rgba(255,255,255,0.15);
+            border: none;
+            border-radius: 11px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .settings-toggle.on {
+            background: rgba(var(--rnp-accent-color-rgb), 0.6);
+        }
+        .settings-toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 18px;
+            height: 18px;
+            background: #fff;
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+        .settings-toggle.on::after {
+            transform: translateX(18px);
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="/mini" class="btn-back">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            返回
+        </a>
+        <h2>设置</h2>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="background">背景</button>
+        <button class="tab" data-tab="lyrics">歌词</button>
+    </div>
+
+    <div class="settings-content" id="settings-content">
+        <!-- 动态生成 -->
+    </div>
+
+    <script>
+        let currentTab = 'background';
+        const defaults = {
+            bgType: 'blur',
+            immersiveColor: 'off',
+            bgBlur: 40,
+            blurDim: 55,
+            blurOpacity: 100,
+            fluidDim: 55,
+            fluidOpacity: 100,
+            fluidBgBlur: 10,
+            gradientDim: 55,
+            gradientOpacity: 100,
+            rotateBgSpeed: 15,
+            rotateBgBlur: 30,
+            rotateBgZoom: 185,
+            gradientAccent: 0,
+            dynamicGradientDarken: 30,
+            dynamicGradientOpacity: 100,
+            dynamicGradientSpeed: 15,
+            dynamicGradientDim: 40,
+            dynamicGradientFilterBright: true,
+            solidDim: 55,
+            solidOpacity: 100,
+            solidFollowAccent: false,
+            solidColor: '#1a1a2e',
+            showLyrics: true,
+            showTranslation: true,
+            lyricAlign: 'left',
+            lyricSpacing: 4,
+            progressGlow: false,
+            progressStyle: 'thin',
+            miniFont: 'default'
+        };
+
+        function loadSettings() {
+            try {
+                const saved = JSON.parse(localStorage.getItem('mini-settings') || '{}');
+                return Object.assign({}, defaults, saved);
+            } catch(e) { return { ...defaults }; }
+        }
+
+        function saveSettings(key, value) {
+            const s = loadSettings();
+            s[key] = value;
+            localStorage.setItem('mini-settings', JSON.stringify(s));
+            window.dispatchEvent(new Event('storage'));
+            renderSettings();
+        }
+
+        function renderSettings() {
+            const s = loadSettings();
+            const container = document.getElementById('settings-content');
+            
+            let html = '';
+            
+            if (currentTab === 'background') {
+            
+            // 沉浸主题色
+            html += '<div class="settings-row"><span class="settings-label">沉浸主题色</span>';
+            html += '<div class="settings-select-group">';
+            ['off', 'primary', 'secondary', 'tertiary'].forEach(v => {
+                const labels = { off: '关', primary: '鲜艳', secondary: '柔和', tertiary: '偏色' };
+                html += '<button class="settings-select-btn' + (s.immersiveColor === v ? ' selected' : '') + '" data-key="immersiveColor" data-value="' + v + '">' + labels[v] + '</button>';
+            });
+            html += '</div></div>';
+            
+            // 背景类型
+            html += '<div class="settings-sep"></div>';
+            html += '<div class="settings-group-title">背景类型</div>';
+            html += '<div class="settings-row"><span class="settings-label">背景模式</span>';
+            html += '<div class="settings-select-group">';
+            ['blur', 'gradient', 'solid', 'none'].forEach(v => {
+                const labels = { blur: '模糊', gradient: '渐变', solid: '纯色', none: '无' };
+                html += '<button class="settings-select-btn' + (s.bgType === v ? ' selected' : '') + '" data-key="bgType" data-value="' + v + '">' + labels[v] + '</button>';
+            });
+            html += '</div></div>';
+            
+            // 模糊设置
+            if (s.bgType === 'blur') {
+                html += '<div class="settings-sep"></div>';
+                html += '<div class="settings-group-title">模糊设置</div>';
+                html += sliderRow('blurDim', '压暗程度', 0, 100, s.blurDim, '%');
+                html += sliderRow('blurOpacity', '不透明度', 0, 100, s.blurOpacity, '%');
+                html += sliderRow('bgBlur', '模糊强度', 0, 100, s.bgBlur, 'px');
+            }
+            
+            // 渐变设置
+            if (s.bgType === 'gradient') {
+                html += '<div class="settings-sep"></div>';
+                html += '<div class="settings-group-title">渐变设置</div>';
+                html += sliderRow('dynamicGradientDarken', '压暗程度', 0, 80, s.dynamicGradientDarken, '%');
+                html += sliderRow('dynamicGradientOpacity', '不透明度', 0, 100, s.dynamicGradientOpacity, '%');
+                html += sliderRow('dynamicGradientSpeed', '动画速度', 5, 60, s.dynamicGradientSpeed, 's');
+                html += sliderRow('dynamicGradientBlur', '模糊程度', 0, 40, s.dynamicGradientBlur, 'px');
+                html += sliderRow('dynamicGradientDim', '强调色蒙版', 0, 100, s.dynamicGradientDim, '%');
+                html += '<div class="settings-row"><span class="settings-label">屏蔽高亮色</span>';
+                html += '<button class="settings-toggle' + (s.dynamicGradientFilterBright ? ' on' : '') + '" data-key="dynamicGradientFilterBright"></button></div>';
+            }
+            
+            // 纯色设置
+            if (s.bgType === 'solid') {
+                html += '<div class="settings-sep"></div>';
+                html += '<div class="settings-group-title">纯色设置</div>';
+                html += sliderRow('solidDim', '压暗程度', 0, 100, s.solidDim, '%');
+                html += sliderRow('solidOpacity', '不透明度', 0, 100, s.solidOpacity, '%');
+                html += '<div class="settings-row"><span class="settings-label">跟随强调色</span>';
+                html += '<button class="settings-toggle' + (s.solidFollowAccent ? ' on' : '') + '" data-key="solidFollowAccent"></button></div>';
+                if (!s.solidFollowAccent) {
+                    html += '<div class="settings-row"><span class="settings-label">自定义颜色</span>';
+                    html += '<input type="color" class="settings-color" data-key="solidColor" value="' + s.solidColor + '"></div>';
+                }
+            }
+            
+            // 字体设置
+            html += '<div class="settings-sep"></div>';
+            html += '<div class="settings-group-title">字体设置</div>';
+            html += '<div class="settings-row"><span class="settings-label">全局字体</span>';
+            html += '<select class="settings-select mini-font-select" id="miniFontSelect" data-key="miniFont">';
+            html += '<option value="default"' + (s.miniFont === 'default' || !s.miniFont ? ' selected' : '') + '>跟随主播放器</option>';
+            html += '<option value="system"' + (s.miniFont === 'system' ? ' selected' : '') + '>默认字体</option>';
+            html += '</select></div>';
+            }
+
+            // 歌词标签页
+            if (currentTab === 'lyrics') {
+                html += '<div class="settings-group-title">歌词设置</div>';
+                html += '<div class="settings-row"><span class="settings-label">显示歌词</span>';
+                html += '<button class="settings-toggle' + (s.showLyrics ? ' on' : '') + '" data-key="showLyrics"></button></div>';
+                html += '<div class="settings-row"><span class="settings-label">显示翻译</span>';
+                html += '<button class="settings-toggle' + (s.showTranslation ? ' on' : '') + '" data-key="showTranslation"></button></div>';
+                html += sliderRow('lyricSpacing', '歌词间距', 0, 20, s.lyricSpacing, 'px');
+                html += '<div class="settings-sep"></div>';
+                html += '<div class="settings-group-title">进度条</div>';
+                html += '<div class="settings-row"><span class="settings-label">彗星拖尾</span>';
+                html += '<button class="settings-toggle' + (s.progressGlow ? ' on' : '') + '" data-key="progressGlow"></button></div>';
+                html += '<div class="settings-sep"></div>';
+                html += '<div class="settings-row"><span class="settings-label">歌词对齐</span>';
+                html += '<div class="settings-select-group">';
+                ['left', 'center', 'right'].forEach(v => {
+                    const labels = { left: '居左', center: '居中', right: '居右' };
+                    html += '<button class="settings-select-btn' + (s.lyricAlign === v ? ' selected' : '') + '" data-key="lyricAlign" data-value="' + v + '">' + labels[v] + '</button>';
+                });
+                html += '</div></div>';
+            }
+
+            container.innerHTML = html;
+            bindEvents();
+        }
+
+        function sliderRow(key, label, min, max, val, unit) {
+            return '<div class="settings-row slider-row"><span class="settings-label">' + label + '</span>' +
+                '<div class="slider-wrapper"><input type="range" class="settings-slider" data-key="' + key + '" min="' + min + '" max="' + max + '" value="' + val + '">' +
+                '<span class="slider-value">' + val + unit + '</span></div></div>';
+        }
+
+        function bindEvents() {
+            // 选择按钮
+            document.querySelectorAll('.settings-select-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    saveSettings(btn.dataset.key, btn.dataset.value);
+                });
+            });
+            
+            // 滑块
+            document.querySelectorAll('.settings-slider').forEach(sl => {
+                sl.addEventListener('input', () => {
+                    const display = sl.parentElement.querySelector('.slider-value');
+                    const unit = display ? display.textContent.replace(/[\d.]/g, '') : '';
+                    if (display) display.textContent = sl.value + unit;
+                });
+                sl.addEventListener('change', () => {
+                    saveSettings(sl.dataset.key, parseInt(sl.value));
+                });
+            });
+            
+            // 开关
+            document.querySelectorAll('.settings-toggle').forEach(toggle => {
+                toggle.addEventListener('click', () => {
+                    const s = loadSettings();
+                    const current = s[toggle.dataset.key];
+                    saveSettings(toggle.dataset.key, !current);
+                });
+            });
+            
+            // 颜色选择
+            document.querySelectorAll('.settings-color').forEach(color => {
+                color.addEventListener('change', () => {
+                    saveSettings(color.dataset.key, color.value);
+                });
+            });
+            
+            // 字体选择
+            const fontSelect = document.getElementById('miniFontSelect');
+            if (fontSelect) {
+                fontSelect.addEventListener('change', () => {
+                    saveSettings('miniFont', fontSelect.value);
+                });
+            }
+        }
+
+        // 标签页切换
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                currentTab = tab.dataset.tab;
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                renderSettings();
+            });
+        });
+
+        // 加载字体列表
+        async function loadFontList() {
+            try {
+                const resp = await fetch('/api/fonts');
+                const fonts = await resp.json();
+                const fontSelect = document.getElementById('miniFontSelect');
+                if (fontSelect && fonts && fonts.length > 0) {
+                    const s = loadSettings();
+                    fonts.forEach(font => {
+                        const fontName = font.replace(/\.[^.]+$/, '');
+                        const option = document.createElement('option');
+                        option.value = fontName;
+                        option.textContent = fontName;
+                        if (s.miniFont === fontName) option.selected = true;
+                        fontSelect.appendChild(option);
+                    });
+                }
+            } catch(e) {
+                console.error('Failed to load fonts:', e);
+            }
+        }
+
+        // 初始渲染
+        renderSettings();
+        loadFontList();
+    </script>
+</body>
+</html>

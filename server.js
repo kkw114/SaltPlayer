@@ -206,12 +206,14 @@ if (neteaseApi) {
     });
 
     // Like/unlike a song
-    app.post('/api/netease/like', async (req, res) => {
+    app.get('/api/netease/like', async (req, res) => {
         try {
-            const { id, like, cookie } = req.body;
+            const { id, like, cookie, timestamp } = req.query;
             if (!id) return res.status(400).json({ error: 'id required' });
             const cookieStr = cookie || getCookieFromReq(req);
-            const result = await proxyNeteaseApi('like', { id: Number(id), like: like !== false && like !== 'false', cookie: cookieStr, timestamp: Date.now() });
+            // API expects like as string 'true' or 'false'
+            const likeStr = (like === 'true' || like === '1') ? 'true' : 'false';
+            const result = await proxyNeteaseApi('like', { id: Number(id), like: likeStr, cookie: cookieStr, timestamp: Number(timestamp) || Date.now() });
             res.json(result);
         } catch (e) { res.status(500).json({ error: e.message }); }
     });
@@ -682,6 +684,36 @@ app.post('/api/fonts/upload', multer({
 }).single('font'), function(req, res) {
     if (!req.file) { res.status(400).json({ error: 'No file' }); return; }
     res.json({ name: req.file.filename });
+});
+
+// State endpoint for mini mode
+let playerState = {
+    title: '',
+    artist: '',
+    coverUrl: '',
+    currentTime: 0,
+    duration: 0,
+    lyrics: [],
+    currentLyricIndex: -1
+};
+
+app.get('/api/state', (req, res) => {
+    res.json(playerState);
+});
+
+app.post('/api/state', (req, res) => {
+    Object.assign(playerState, req.body);
+    res.json({ ok: true });
+});
+
+// Mini mode route
+app.get('/mini', (req, res) => {
+    res.sendFile(path.join(__dirname, 'mini.html'));
+});
+
+// Mini settings route
+app.get('/mini/st', (req, res) => {
+    res.sendFile(path.join(__dirname, 'mini-settings.html'));
 });
 
 app.listen(PORT, '::', () => {

@@ -167,11 +167,13 @@ const NetEaseAPI = (() => {
         if (!musicU && fullCookie) {
             musicU = extractCookie(fullCookie, 'MUSIC_U');
         }
-        return request(BASE + '/like', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: Number(id), like: like === true, cookie: musicU ? 'MUSIC_U=' + musicU + ';' : '' })
+        var params = new URLSearchParams({
+            id: Number(id),
+            like: like ? 'true' : 'false',
+            timestamp: Date.now(),
+            cookie: musicU ? 'MUSIC_U=' + musicU : ''
         });
+        return request(BASE + '/like?' + params.toString());
     }
 
     async function getLikelist(uid) {

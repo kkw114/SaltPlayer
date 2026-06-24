@@ -306,7 +306,13 @@ input[type="text"], input[type="number"], input[type="search"] {
 .icon-btn.small { width: 32px; height: 32px; }
 #btn-playmode { background: transparent !important; }
 #btn-playmode:hover { background: rgba(255,255,255,0.08) !important; }
+#btn-like { background: transparent !important; transition: all 0.2s; }
+#btn-like:hover { background: rgba(255,255,255,0.08) !important; transform: scale(1.1); }
+#btn-like #icon-heart-filled { color: #ff4757; }
 .icon-btn.medium { width: 40px; height: 40px; }
+@media (orientation: portrait) {
+    #btn-playmode { display: none !important; }
+}
 
 /* ============================================
    Center Content
@@ -1034,6 +1040,7 @@ body .center-content .track-album { font-family: var(--font-artist, inherit) !im
 @media (max-width: 600px) {
     .album-art-wrapper { width: 200px; height: 200px; }
     .controls-left .icon-btn, .controls-right .icon-btn { display: none; }
+    .controls-left #btn-like, .controls-right #btn-like { display: flex !important; }
     .volume-control { display: none; }
 }
 
@@ -1679,9 +1686,9 @@ body.immersive-color .playlist-item.active .playlist-item-number { color: var(--
 .mobile-quality-bar { display: none; }
 
 /* ============================================
-   Mobile UI (@media max-width: 768px)
-   ============================================ */
-@media (max-width: 768px) {
+    Mobile UI (@media orientation: portrait)
+    ============================================ */
+@media (orientation: portrait) {
     * { -webkit-tap-highlight-color: transparent; }
     .center-content {
         flex-direction: column;
@@ -1710,9 +1717,8 @@ body.immersive-color .playlist-item.active .playlist-item-number { color: var(--
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        width: calc(100% + 32px);
-        margin-left: -16px;
-        margin-right: -16px;
+        width: 80%;
+        margin: 0 auto;
     }
     .mobile-lyrics {
         flex: 1;
@@ -1730,7 +1736,7 @@ body.immersive-color .playlist-item.active .playlist-item-number { color: var(--
         text-overflow: ellipsis;
         white-space: normal;
         word-break: break-word;
-        padding: 4px 16px;
+        padding: 4px 0;
         margin-bottom: var(--mobile-line-spacing, 4px);
         transform-origin: center center;
         transition: transform 0.5s cubic-bezier(0.25,0.46,0.45,0.94), opacity 0.5s ease, filter 0.5s ease, color 0.5s ease;
@@ -1868,7 +1874,8 @@ body.immersive-color .playlist-item.active .playlist-item-number { color: var(--
     .play-btn { width: 56px; height: 56px; }
     .icon-btn.medium { width: 48px; height: 48px; }
     #btn-speed { display: none !important; }
-    #btn-playmode,
+    #btn-playmode { display: none !important; }
+    #btn-like { display: flex !important; }
     #btn-toggle-playlist {
         display: flex !important;
         visibility: visible !important;
@@ -1922,6 +1929,6 @@ body.immersive-color .playlist-item.active .playlist-item-number { color: var(--
     .desktop-hide-speed-slider { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }
 }
 /* Mobile: show speed slider */
-@media (max-width: 768px) {
+@media (orientation: portrait) {
     .desktop-hide-speed-slider { display: flex !important; visibility: visible !important; height: auto !important; overflow: visible !important; }
 }
