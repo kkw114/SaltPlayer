@@ -6,55 +6,56 @@
 
 const Settings = (() => {
   const defaults = {
-    // Appearance
+    // === 外观设置 ===
     textGlow: true,
-    idleMode: true,
-    idleTimeout: 3,
+    idleMode: false,
+    idleTimeout: 1,
     progressBottom: false,
 
-    // Cover
+    // === 封面设置 ===
     rectangleCover: true,
     coverBlurryShadow: true,
-    horizontalAlign: 'center',
-    immersiveColor: 'off', // off, primary, secondary, tertiary
+    horizontalAlign: 'left',
+    immersiveColor: 'primary',
     coverRotate: false,
-    coverRotateSpeed: 20,
-    coverSize: 350,
+    coverRotateSpeed: 13,
+    coverSize: 306,
 
-    // Background
-    bgType: 'blur',
-    bgBlur: 40,
+    // === 背景设置 ===
+    bgType: 'solid',
+    bgBlur: 50,
     bgDim: 55,
     bgOpacity: 100,
-    blurDim: 55, blurOpacity: 100,
-    fluidDim: 55, fluidOpacity: 100,
-    gradientDim: 55, gradientOpacity: 100,
-    solidDim: 55, solidOpacity: 100,
+    blurDim: 50, blurOpacity: 100,
+    fluidDim: 30, fluidOpacity: 100,
+    gradientDim: 51, gradientOpacity: 100,
+    solidDim: 50, solidOpacity: 100,
     noneDim: 55, noneOpacity: 100,
-    dynamicGradientDim: 40, dynamicGradientOpacity: 100,
-    dynamicGradientSpeed: 15, dynamicGradientBlur: 20,
-    dynamicGradientDarken: 30,
+    dynamicGradientDim: 22, dynamicGradientOpacity: 100,
+    dynamicGradientSpeed: 26,
+    dynamicGradientBlur: 20,
+    dynamicGradientDarken: 34,
     dynamicGradientFilterBright: true,
     solidColor: '#1a1a2e',
-    solidFollowAccent: false,
-    rotateBgSpeed: 15,
-    rotateBgBlur: 30,
+    solidFollowAccent: true,
+    rotateBgSpeed: 10,
+    rotateBgBlur: 65,
     rotateBgZoom: 185,
-    fluidBgBlur: 10,
+    fluidBgBlur: 30,
     fluidBgSpeed: 25,
 
-    // Lyrics
+    // === 歌词设置 ===
+    lyricAlign: 'left',
     lyricFontSize: 28,
     lyricFontWeight: 500,
     transFontSize: 18,
     transFontWeight: 400,
-    lyricFade: false,
-    lyricZoom: false,
-    lyricBlur: false,
+    lyricFade: true,
+    lyricZoom: true,
+    lyricBlur: true,
     showTranslation: true,
     showRomaji: false,
     lyricAlignment: 45,
-    lyricAlign: 'center',
     lyricGlow: false,
     textShadow: false,
     customFontFamily: '',
@@ -62,30 +63,31 @@ const Settings = (() => {
     transFontFamily: '',
     titleFontFamily: '',
     artistFontFamily: '',
-    lyricLineSpacing: 8,
+    lyricLineSpacing: 17,
     titleFontSize: 22,
-    titleFontWeight: 600,
+    titleFontWeight: 465,
     artistFontSize: 16,
-    artistFontWeight: 400,
+    artistFontWeight: 407,
+    karaokeLyrics: false,
 
-    // Per-element glow/shadow
-    lyricOrigGlow: false,
-    lyricOrigShadow: false,
-    lyricTransGlow: false,
+    // === 元素辉光与阴影 ===
+    lyricOrigGlow: true,
+    lyricOrigShadow: true,
+    lyricTransGlow: true,
     lyricTransShadow: false,
     trackTitleGlow: false,
     trackTitleShadow: false,
     trackArtistGlow: false,
-    trackArtistShadow: false,
+    trackArtistShadow: true,
 
-    // Mobile lyrics
-    mobileLyricSize: 13,
+    // === 移动端歌词设置 ===
+    mobileLyricSize: 27,
     mobileLyricWeight: 500,
-    mobileTransSize: 10,
+    mobileTransSize: 17,
     mobileTransWeight: 400,
     mobileLineSpacing: 4,
 
-    // Playback
+    // === 播放设置 ===
     volume: 80,
     rate: 1,
     speedStep: 0.1,
@@ -94,11 +96,14 @@ const Settings = (() => {
     lastSubfolder: '',
     lastTrackIndex: -1,
     webdavConnections: [],
+    cloudSync: false,
 
-    // NetEase
-    neteaseQuality: '320000', // 音质：192000(LQ), 320000(HQ), flac(FLAC)
-    neteaseVipType: 'auto', // auto, vip, svip
+    // === 网易云设置 ===
+    neteaseQuality: '192000',
+    neteaseVipType: 'svip',
     neteaseDefaultDaily: false,
+    neteaseLyrics: false,
+    neteaseLyricsPriority: false,
   };
 
   let settings = {};

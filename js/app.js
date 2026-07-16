@@ -13,27 +13,29 @@ const App = (() => {
     let localSubfolders = [];
     let currentLabel = 'SaltLink';
     let lastStateUpdate = 0;
+    let stateChannel = null;
+
+    // Initialize BroadcastChannel for local sync
+    try {
+        stateChannel = new BroadcastChannel('salt-player-state');
+    } catch(e) {}
 
     function postState() {
         var t = PlaylistManager.getCurrentTrack();
         if (!t) return;
         var lyrics = typeof LyricsEngine !== 'undefined' ? LyricsEngine.lyrics : [];
         var currentLyricIndex = typeof LyricsEngine !== 'undefined' ? LyricsEngine.currentLine : -1;
-        // 获取当前主题色
         var rootStyle = getComputedStyle(document.documentElement);
         var accentColor = rootStyle.getPropertyValue('--rnp-accent-color').trim() || 'rgb(120,120,120)';
         var accentRgb = rootStyle.getPropertyValue('--rnp-accent-color-rgb').trim() || '120,120,120';
         var shade2 = rootStyle.getPropertyValue('--rnp-accent-color-shade-2').trim() || 'rgb(255,255,255)';
         var shade2Rgb = rootStyle.getPropertyValue('--rnp-accent-color-shade-2-rgb').trim() || '255,255,255';
-        // 获取调色板 - 压缩为简单格式
         var palette = window._rnpPalette || null;
         var paletteCompact = null;
         if (palette && palette.length > 0) {
             paletteCompact = palette.map(function(c) { return [c[0], c[1], c[2]]; });
         }
-        // 获取字体设置
         var customFontFamily = typeof Settings !== 'undefined' ? Settings.get('customFontFamily') || '' : '';
-        // 处理封面URL - 使用代理避免CORS问题
         var coverUrl = t.coverUrl || '';
         if (coverUrl && coverUrl.startsWith('http')) {
             coverUrl = '/api/netease/cover?url=' + encodeURIComponent(coverUrl);
@@ -43,6 +45,7 @@ const App = (() => {
             artist: t.artist || '',
             coverUrl: coverUrl,
             rawCoverUrl: t.coverUrl || '',
+            audioUrl: t.url || '',
             currentTime: typeof AudioEngine !== 'undefined' ? AudioEngine.getPosition() : 0,
             duration: typeof AudioEngine !== 'undefined' ? AudioEngine.getDuration() : 0,
             lyrics: lyrics.map(function(l) { return { original: l.original || '', translation: l.translation || '' }; }),
@@ -55,11 +58,18 @@ const App = (() => {
             palette: paletteCompact,
             customFontFamily: customFontFamily
         };
-        fetch('/api/state', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(state)
-        }).catch(function() {});
+        // Always broadcast locally
+        if (stateChannel) {
+            try { stateChannel.postMessage(state); } catch(e) {}
+        }
+        // Only send to cloud if enabled
+        if (typeof Settings !== 'undefined' && Settings.get('cloudSync')) {
+            fetch('/api/state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(state)
+            }).catch(function() {});
+        }
     }
 
     function fmtRate(r) {
@@ -390,24 +400,31 @@ const App = (() => {
         var btnLike = document.getElementById('btn-like');
         var iconHeart = document.getElementById('icon-heart');
         var iconHeartFilled = document.getElementById('icon-heart-filled');
+        var btnPlaymode = document.getElementById('btn-playmode');
         var likedSongIds = new Set();
 
         function updateLikeButton(track) {
             if (!btnLike) return;
-            if (playbackSourceMode === 'netease' && track && track.neteaseId) {
-                // Only show like button for daily recommend or liked songs playlist
+            var isNeteaseSource = playbackSourceMode === 'netease';
+            var shouldShow = false;
+            
+            if (isNeteaseSource && track && track.neteaseId) {
+                // 网易云模式下，除了用户自建歌单外都显示喜欢按键
                 var folderName = els.folderName ? els.folderName.textContent : '';
                 var isDaily = folderName.indexOf('每日推荐') >= 0;
                 var isLikedPlaylist = (typeof NetEaseUI !== 'undefined' && NetEaseUI.getCurrentPlaylistId && NetEaseUI.getLikedSongsPlaylistId) &&
                     NetEaseUI.getCurrentPlaylistId() === NetEaseUI.getLikedSongsPlaylistId();
-                if (isDaily || isLikedPlaylist) {
-                    btnLike.classList.remove('hidden');
-                    var isLiked = likedSongIds.has(track.neteaseId);
-                    iconHeart.classList.toggle('hidden', isLiked);
-                    iconHeartFilled.classList.toggle('hidden', !isLiked);
-                } else {
-                    btnLike.classList.add('hidden');
-                }
+                var isUserPlaylist = folderName && !isDaily && !isLikedPlaylist && folderName !== '网易云音乐';
+                
+                // 除了用户自建歌单外都显示
+                shouldShow = !isUserPlaylist;
+            }
+            
+            if (shouldShow) {
+                btnLike.classList.remove('hidden');
+                var isLiked = likedSongIds.has(track.neteaseId);
+                iconHeart.classList.toggle('hidden', isLiked);
+                iconHeartFilled.classList.toggle('hidden', !isLiked);
             } else {
                 btnLike.classList.add('hidden');
             }
@@ -654,8 +671,7 @@ const App = (() => {
         for (var i = 0; i < data.length; i++) {
             var t = data[i];
             if (t.lrcUrl) lrcFileMap[t.name] = t.lrcUrl;
-            if (t.hasCover) t.coverUrl = '/api/cover?file=' + encodeURIComponent(t.url.replace('/music/', ''));
-            else t.coverUrl = null;
+            if (t.url) t.coverUrl = '/api/cover?file=' + encodeURIComponent(t.url.replace('/music/', ''));
         }
         data.sort(function(a, b) {
             var an = String(a.title || a.name || '');
@@ -1596,9 +1612,50 @@ const App = (() => {
             }
         } else lrcRef = lrcFileMap[track.name];
 
-        if (lrcRef) {
-            if (lrcRef instanceof File) lrcRef.text().then(function(t) { LyricsEngine.setLyrics(LyricsEngine.parseLRC(t).lyrics); }).catch(function() {});
-            else if (typeof lrcRef === 'string') fetch(lrcRef).then(function(r) { return r.text(); }).then(function(t) { LyricsEngine.setLyrics(LyricsEngine.parseLRC(t).lyrics); }).catch(function() {});
+        function loadLocalLyrics() {
+            if (lrcRef) {
+                if (lrcRef instanceof File) return lrcRef.text().then(function(t) { LyricsEngine.setLyrics(LyricsEngine.parseLRC(t).lyrics); });
+                else if (typeof lrcRef === 'string') return fetch(lrcRef).then(function(r) { return r.text(); }).then(function(t) { LyricsEngine.setLyrics(LyricsEngine.parseLRC(t).lyrics); });
+            }
+            return Promise.resolve(null);
+        }
+
+        function loadNeteaseLyrics() {
+            if (!Settings.get('neteaseLyrics') || !track.title || typeof NetEaseAPI === 'undefined') return Promise.resolve(null);
+            LyricsEngine.showStatus('获取中...');
+            var keyword = track.artist ? track.artist + ' ' + track.title : track.title;
+            return NetEaseAPI.search(keyword).then(function(data) {
+                if (data && data.result && data.result.songs && data.result.songs.length > 0) {
+                    var songId = data.result.songs[0].id;
+                    return NetEaseAPI.getLyric(songId);
+                }
+            }).then(function(data) {
+                if (data && data.lrc && data.lrc.lyric) {
+                    var parsed = LyricsEngine.parseLRC(data.lrc.lyric);
+                    if (data.tlyric && data.tlyric.lyric) {
+                        var transParsed = LyricsEngine.parseLRC(data.tlyric.lyric);
+                        if (transParsed && transParsed.lyrics) {
+                            transParsed.lyrics.forEach(function(t) {
+                                var match = parsed.lyrics.find(function(l) { return Math.abs(l.time - t.time) < 100; });
+                                if (match) match.translation = t.original;
+                            });
+                        }
+                    }
+                    LyricsEngine.setLyrics(parsed.lyrics);
+                    return true;
+                }
+                return false;
+            }).catch(function() { return false; });
+        }
+
+        if (Settings.get('neteaseLyricsPriority')) {
+            loadNeteaseLyrics().then(function(ok) {
+                if (!ok) loadLocalLyrics();
+            });
+        } else {
+            loadLocalLyrics().then(function() {
+                if (!lrcRef) loadNeteaseLyrics();
+            });
         }
 
         // Play track

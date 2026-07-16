@@ -3,6 +3,11 @@
    Inspired by refined-now-playing-netease
    ============================================ */
 
+/* 禁用浏览器夜间模式影响 */
+html {
+    color-scheme: light;
+}
+
 :root {
     --rnp-accent-color: rgb(120, 120, 120);
     --rnp-accent-color-rgb: 120, 120, 120;
@@ -423,6 +428,21 @@ input[type="text"], input[type="number"], input[type="search"] {
 }
 .lyrics-line[offset="0"] .lyric-original { color: var(--rnp-accent-color-shade-2); opacity: 1; }
 .lyrics-line[offset="0"] .lyric-translation { color: rgba(var(--rnp-accent-color-shade-2-rgb), 0.7); }
+
+/* Karaoke word-by-word */
+.karaoke-word {
+    color: rgba(var(--rnp-accent-color-shade-2-rgb), 0.4);
+    transition: color 0.15s ease;
+}
+.karaoke-word.active {
+    color: var(--rnp-accent-color-shade-2);
+}
+.lyrics-line[offset="0"] .karaoke-word {
+    color: rgba(var(--rnp-accent-color-shade-2-rgb), 0.4);
+}
+.lyrics-line[offset="0"] .karaoke-word.active {
+    color: var(--rnp-accent-color-shade-2);
+}
 
 /* Interlude dots */
 .lyrics-line.interlude { height: 0; overflow: visible; pointer-events: none; }
@@ -1040,7 +1060,8 @@ body .center-content .track-album { font-family: var(--font-artist, inherit) !im
 @media (max-width: 600px) {
     .album-art-wrapper { width: 200px; height: 200px; }
     .controls-left .icon-btn, .controls-right .icon-btn { display: none; }
-    .controls-left #btn-like, .controls-right #btn-like { display: flex !important; }
+    .controls-left #btn-like:not(.hidden), .controls-right #btn-like:not(.hidden),
+    .controls-left #btn-playmode:not(.hidden), .controls-right #btn-playmode:not(.hidden) { display: flex !important; }
     .volume-control { display: none; }
 }
 
@@ -1553,10 +1574,13 @@ body.immersive-color .playlist-item.active .playlist-item-number { color: var(--
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
 .netease-login-content {
-    position: relative; width: 350px; height: 350px; max-width: 90vw;
+    position: relative; width: 350px; max-width: 90vw; max-height: 80vh;
     background: rgba(30,30,30,0.95); border-radius: 16px;
     overflow: hidden; box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column;
+    scrollbar-width: none; -ms-overflow-style: none;
 }
+.netease-login-content::-webkit-scrollbar { display: none; }
 .netease-login-tabs {
     display: flex; align-items: center;
     border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -1580,7 +1604,8 @@ body.immersive-color .playlist-item.active .playlist-item-number { color: var(--
 }
 .netease-login-close:hover { background: rgba(255,255,255,0.1); color: #fff; }
 
-.netease-login-body { padding: 24px; display: flex; align-items: center; justify-content: center; height: calc(100% - 50px); }
+.netease-login-body { padding: 24px; display: flex; align-items: center; justify-content: center; flex: 1; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+.netease-login-body::-webkit-scrollbar { display: none; }
 .netease-qr-wrapper {
     display: flex; flex-direction: column; align-items: center; gap: 12px;
 }
@@ -1600,6 +1625,90 @@ body.immersive-color .playlist-item.active .playlist-item-number { color: var(--
 }
 .netease-input::placeholder { color: rgba(255,255,255,0.25); }
 .netease-input:focus { border-color: rgba(var(--rnp-accent-color-rgb), 0.4); }
+
+.netease-cookie-input {
+    width: 100%; padding: 10px 12px; margin-bottom: 10px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; color: #fff; font-size: 12px;
+    font-family: monospace; outline: none; resize: vertical;
+    min-height: 80px;
+}
+.netease-cookie-input::placeholder { color: rgba(255,255,255,0.25); }
+.netease-cookie-input:focus { border-color: rgba(var(--rnp-accent-color-rgb), 0.4); }
+
+.netease-cookie-hint {
+    font-size: 12px; color: rgba(255,255,255,0.5); margin-bottom: 12px;
+    text-align: center;
+}
+
+.netease-cookie-help {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: rgba(255,255,255,0.6);
+    cursor: pointer; padding: 8px; margin-top: 10px;
+    background: rgba(255,255,255,0.05); border-radius: 6px;
+    transition: background 0.2s; justify-content: center;
+}
+.netease-cookie-help:hover { background: rgba(255,255,255,0.1); }
+.help-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(var(--rnp-accent-color-rgb), 0.3);
+    font-size: 11px; font-weight: bold;
+}
+
+/* Help Modal */
+.netease-help-modal {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+}
+.netease-help-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.7);
+}
+.netease-help-content {
+    position: relative; width: 380px; max-width: 90vw;
+    background: rgba(30,30,30,0.98); border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+}
+.netease-help-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.1);
+    font-size: 16px; font-weight: 600;
+}
+.netease-help-close {
+    background: none; border: none; color: rgba(255,255,255,0.5);
+    cursor: pointer; font-size: 18px; padding: 4px 8px; border-radius: 4px;
+}
+.netease-help-close:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.netease-help-body { padding: 20px; }
+.help-step {
+    display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+.help-step span.step-text {
+    flex: 1; min-width: 0;
+}
+.step-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+    background: rgba(var(--rnp-accent-color-rgb), 0.3);
+    font-size: 11px; font-weight: bold;
+}
+.help-step a { color: var(--rnp-accent-color-shade-2); }
+.help-info-badge {
+    color: #f0ad4e; font-weight: bold;
+}
+.help-step code {
+    background: rgba(255,255,255,0.1); padding: 1px 4px; border-radius: 3px;
+    font-family: monospace; font-size: 11px;
+}
+.help-step kbd {
+    background: rgba(255,255,255,0.15); padding: 2px 6px; border-radius: 3px;
+    font-family: monospace; font-size: 11px; border: 1px solid rgba(255,255,255,0.2);
+}
+.help-tip {
+    margin-top: 8px; padding: 8px; background: rgba(var(--rnp-accent-color-rgb), 0.15);
+    border-radius: 6px; font-size: 11px; color: rgba(255,255,255,0.7);
+}
 
 .netease-phone-login-btn {
     width: 100%; padding: 10px; border: none; border-radius: 8px;
@@ -1874,8 +1983,8 @@ body.immersive-color .playlist-item.active .playlist-item-number { color: var(--
     .play-btn { width: 56px; height: 56px; }
     .icon-btn.medium { width: 48px; height: 48px; }
     #btn-speed { display: none !important; }
-    #btn-playmode { display: none !important; }
-    #btn-like { display: flex !important; }
+    #btn-like:not(.hidden) { display: flex !important; }
+    #btn-playmode:not(.hidden) { display: flex !important; }
     #btn-toggle-playlist {
         display: flex !important;
         visibility: visible !important;

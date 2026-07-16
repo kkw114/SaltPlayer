@@ -13,6 +13,7 @@ const NetEaseUI = (() => {
     let likedSongIds = new Set(); // Liked song IDs
     let dailyTracksCache = null;
     let likedSongsPlaylistId = null; // 喜欢的音乐歌单ID
+    let lastSearchKeywords = ''; // 上次搜索的关键词
 
     // User info cache
     function getCachedUserInfo() {
@@ -75,7 +76,6 @@ const NetEaseUI = (() => {
                 '<div class="netease-search-box">' +
                     '<div class="netease-search-input-wrapper">' +
                         '<input type="text" id="netease-search-input" class="netease-search-input" placeholder="搜索歌曲、歌手、歌单..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>' +
-                        '<button class="netease-search-clear hidden" id="netease-search-clear">✕</button>' +
                     '</div>' +
                     '<div class="netease-search-tabs" id="netease-search-tabs">' +
                         '<button class="netease-search-tab active" data-type="1">单曲</button>' +
@@ -107,7 +107,7 @@ const NetEaseUI = (() => {
             '<div class="netease-login-content">' +
                 '<div class="netease-login-tabs">' +
                     '<button class="netease-login-tab active" data-method="qr">扫码登录</button>' +
-                    '<button class="netease-login-tab" data-method="phone">手机登录</button>' +
+                    '<button class="netease-login-tab" data-method="cookie">Cookie登录</button>' +
                     '<button class="netease-login-close" id="netease-login-close">✕</button>' +
                 '</div>' +
                 '<div class="netease-login-body" id="netease-login-body">' +
@@ -117,11 +117,33 @@ const NetEaseUI = (() => {
                             '<div class="netease-qr-status" id="netease-qr-status">打开网易云音乐APP扫码登录</div>' +
                         '</div>' +
                     '</div>' +
-                    '<div id="netease-phone-section" class="hidden">' +
-                        '<input type="text" id="netease-phone-input" class="netease-input" placeholder="手机号" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>' +
-                        '<input type="password" id="netease-pass-input" class="netease-input" placeholder="密码" autocomplete="new-password"/>' +
-                        '<button class="netease-phone-login-btn" id="netease-phone-login-btn">登录</button>' +
+                    '<div id="netease-cookie-section" class="hidden">' +
+                        '<textarea id="netease-cookie-input" class="netease-cookie-input" placeholder="粘贴从浏览器复制的Cookie，格式如：\nMUSIC_U=xxx; __csrf=xxx\n需包含MUSIC_U字段，否则无法登录" rows="3"></textarea>' +
+                        '<button class="netease-phone-login-btn" id="netease-cookie-login-btn">登录</button>' +
+                        '<div class="netease-cookie-help" id="netease-cookie-help-toggle">' +
+                            '<span class="help-icon">?</span> 如何获取Cookie？' +
+                        '</div>' +
                     '</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="netease-help-modal hidden" id="netease-help-modal">' +
+                '<div class="netease-help-overlay" id="netease-help-overlay"></div>' +
+                '<div class="netease-help-content">' +
+                    '<div class="netease-help-header">' +
+                        '<span>Cookie获取说明</span>' +
+                        '<button class="netease-help-close" id="netease-help-close">✕</button>' +
+                    '</div>' +
+                    '<div class="netease-help-body">' +
+                        '<div class="help-step"><span class="step-num">1</span><span class="step-text">打开 <a href="https://music.163.com/#/login" target="_blank">music.163.com</a> 并选择任意方式登录</span></div>' +
+                        '<div class="help-step"><span class="step-num">2</span><span class="step-text">按 <kbd>F12</kbd> 打开开发者工具</span></div>' +
+                        '<div class="help-step"><span class="step-num">3</span><span class="step-text">点击 <b>Network（网络）</b> 标签</span></div>' +
+                        '<div class="help-step"><span class="step-num">4</span><span class="step-text">刷新页面，点击任意一个请求 <span class="help-info-badge">{ i }</span></span></div>' +
+                        '<div class="help-step"><span class="step-num">5</span><span class="step-text">选中 <b>标头</b> 并下滑找到 <b>请求标头</b> 分类里的 <code>cookie</code></span></div>' +
+                        '<div class="help-step"><span class="step-num">6</span><span class="step-text">复制全部cookie内容</span></div>' +
+                        '<div class="help-tip">💡 复制完整的cookie字符串粘贴到输入框即可</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
                 '</div>' +
             '</div>';
         document.body.appendChild(loginModal);
@@ -132,7 +154,6 @@ const NetEaseUI = (() => {
         // Search input
         var searchInput = document.getElementById('netease-search-input');
         var searchTabs = document.getElementById('netease-search-tabs');
-        var searchClear = document.getElementById('netease-search-clear');
         if (searchInput) {
             // Hide tabs initially
             if (searchTabs) searchTabs.classList.add('hidden');
@@ -140,18 +161,18 @@ const NetEaseUI = (() => {
             searchInput.addEventListener('input', function() {
                 clearTimeout(searchTimer);
                 var q = this.value.trim();
-                // Show/hide clear button
-                if (searchClear) searchClear.classList.toggle('hidden', !q);
                 if (!q) {
-                    // Empty - hide tabs and results, show content
+                    // 清空搜索 - 重新加载网易云主界面（与切换音源效果一致）
+                    lastSearchKeywords = '';
                     if (searchTabs) searchTabs.classList.add('hidden');
                     hideSearchResults();
                     var contentEl = document.getElementById('netease-content');
                     var detailEl = document.getElementById('netease-playlist-detail');
                     if (contentEl) contentEl.classList.remove('hidden');
                     if (detailEl) detailEl.classList.add('hidden');
-                    // Reload user playlists
-                    if (isLoggedIn) loadUserPlaylists();
+                    // 重新初始化网易云界面
+                    init();
+                    restoreLogin();
                     return;
                 }
                 // Has content - show tabs
@@ -163,24 +184,6 @@ const NetEaseUI = (() => {
                     clearTimeout(searchTimer);
                     var q = this.value.trim();
                     if (q) doSearch(q);
-                }
-            });
-        }
-
-        // Clear button
-        if (searchClear) {
-            searchClear.addEventListener('click', function() {
-                if (searchInput) {
-                    searchInput.value = '';
-                    searchInput.focus();
-                    searchClear.classList.add('hidden');
-                    if (searchTabs) searchTabs.classList.add('hidden');
-                    hideSearchResults();
-                    var contentEl = document.getElementById('netease-content');
-                    var detailEl = document.getElementById('netease-playlist-detail');
-                    if (contentEl) contentEl.classList.remove('hidden');
-                    if (detailEl) detailEl.classList.add('hidden');
-                    if (isLoggedIn) loadUserPlaylists();
                 }
             });
         }
@@ -231,15 +234,39 @@ const NetEaseUI = (() => {
                 tab.classList.add('active');
                 var method = tab.dataset.method;
                 document.getElementById('netease-qr-section').classList.toggle('hidden', method !== 'qr');
-                document.getElementById('netease-phone-section').classList.toggle('hidden', method !== 'phone');
+                document.getElementById('netease-cookie-section').classList.toggle('hidden', method !== 'cookie');
                 if (method === 'qr') startQrLogin();
             });
         }
 
-        // Phone login button
-        var phoneLoginBtn = document.getElementById('netease-phone-login-btn');
-        if (phoneLoginBtn) {
-            phoneLoginBtn.addEventListener('click', function() { doPhoneLogin(); });
+        // Cookie help toggle - 打开帮助弹窗
+        document.addEventListener('click', function(e) {
+            if (e.target.id === 'netease-cookie-help-toggle' || e.target.closest('#netease-cookie-help-toggle')) {
+                var helpModal = document.getElementById('netease-help-modal');
+                if (helpModal) helpModal.classList.remove('hidden');
+            }
+            if (e.target.id === 'netease-help-close' || e.target.id === 'netease-help-overlay') {
+                var helpModal = document.getElementById('netease-help-modal');
+                if (helpModal) helpModal.classList.add('hidden');
+            }
+        });
+
+        // Cookie login button
+        var cookieLoginBtn = document.getElementById('netease-cookie-login-btn');
+        if (cookieLoginBtn) {
+            cookieLoginBtn.addEventListener('click', function() {
+                var cookieInput = document.getElementById('netease-cookie-input');
+                var cookie = cookieInput ? cookieInput.value.trim() : '';
+                if (!cookie) {
+                    alert('请输入Cookie');
+                    return;
+                }
+                NetEaseAPI.setCookie(cookie);
+                localStorage.setItem('netease-cookie', cookie);
+                isLoggedIn = true;
+                updateLoginUI();
+                hideLoginModal();
+            });
         }
     }
 
@@ -358,9 +385,18 @@ const NetEaseUI = (() => {
         headerEl.innerHTML = '<div class="netease-loading">加载中...</div>';
         tracksEl.innerHTML = '';
 
-        var data = await NetEaseAPI.getDailyRecommend();
+        var data = null;
+        for (var retry = 0; retry < 3; retry++) {
+            data = await NetEaseAPI.getDailyRecommend();
+            if (data && data.data && data.data.dailySongs) break;
+            if (retry < 2) {
+                headerEl.innerHTML = '<div class="netease-loading">加载中... (' + (retry + 2) + '/3)</div>';
+                await new Promise(function(r) { setTimeout(r, 1000); });
+            }
+        }
+
         if (!data || !data.data || !data.data.dailySongs) {
-            headerEl.innerHTML = '<div class="netease-empty">加载失败，请确认已登录</div>';
+            headerEl.innerHTML = '<div class="netease-empty">加载失败，请确认已登录 <button class="netease-retry-btn" onclick="NetEaseUI.loadDailyRecommend()">重试</button></div>';
             return;
         }
 
@@ -397,8 +433,19 @@ const NetEaseUI = (() => {
 
         document.getElementById('netease-back-btn').addEventListener('click', function() {
             detailPanel.classList.add('hidden');
-            if (contentEl) contentEl.classList.remove('hidden');
-            if (loginBar) loginBar.classList.remove('hidden');
+            var searchInput = document.getElementById('netease-search-input');
+            var hasSearch = searchInput && searchInput.value.trim().length > 0;
+            
+            if (hasSearch) {
+                var searchResults = document.getElementById('netease-search-results');
+                var searchTabs = document.getElementById('netease-search-tabs');
+                if (searchResults) searchResults.classList.remove('hidden');
+                if (searchTabs) searchTabs.classList.remove('hidden');
+            } else {
+                if (contentEl) contentEl.classList.remove('hidden');
+                if (loginBar) loginBar.classList.remove('hidden');
+                if (isLoggedIn) loadUserPlaylists();
+            }
         });
 
         document.getElementById('netease-play-all-btn').addEventListener('click', function() {
@@ -453,9 +500,18 @@ const NetEaseUI = (() => {
         headerEl.innerHTML = '<div class="netease-loading">加载中...</div>';
         tracksEl.innerHTML = '';
 
-        var data = await NetEaseAPI.getPlaylistDetail(id);
+        var data = null;
+        for (var retry = 0; retry < 3; retry++) {
+            data = await NetEaseAPI.getPlaylistDetail(id);
+            if (data && data.playlist) break;
+            if (retry < 2) {
+                headerEl.innerHTML = '<div class="netease-loading">加载中... (' + (retry + 2) + '/3)</div>';
+                await new Promise(function(r) { setTimeout(r, 1000); });
+            }
+        }
+
         if (!data || !data.playlist) {
-            headerEl.innerHTML = '<div class="netease-empty">加载失败</div>';
+            headerEl.innerHTML = '<div class="netease-empty">加载失败 <button class="netease-retry-btn" onclick="loadPlaylistDetail(' + id + ')">重试</button></div>';
             return;
         }
 
@@ -478,11 +534,32 @@ const NetEaseUI = (() => {
                 '</div>' +
             '</div>';
 
-        // Back button
+        // Back button - 从每日推荐返回
         document.getElementById('netease-back-btn').addEventListener('click', function() {
             detailPanel.classList.add('hidden');
-            if (contentEl) contentEl.classList.remove('hidden');
-            if (loginBar) loginBar.classList.remove('hidden');
+            // 检查搜索框是否有内容
+            var searchInput = document.getElementById('netease-search-input');
+            var hasSearch = searchInput && searchInput.value.trim().length > 0;
+            
+            if (hasSearch) {
+                // 有搜索内容，显示搜索结果
+                var searchResults = document.getElementById('netease-search-results');
+                var searchTabs = document.getElementById('netease-search-tabs');
+                if (searchResults) searchResults.classList.remove('hidden');
+                if (searchTabs) searchTabs.classList.remove('hidden');
+            } else {
+                // 无搜索内容，显示主界面
+                var contentEl = document.getElementById('netease-content');
+                var loginBar = document.getElementById('netease-login-bar');
+                if (contentEl) contentEl.classList.remove('hidden');
+                if (loginBar) loginBar.classList.remove('hidden');
+                // 重新加载用户歌单
+                if (isLoggedIn) loadUserPlaylists();
+            }
+        });
+
+        document.getElementById('netease-play-all-btn').addEventListener('click', function() {
+            playNeteaseTracks(allTracks, 0, '每日推荐 · ' + dateStr);
         });
 
         var allTracks = pl.tracks || [];
@@ -544,6 +621,7 @@ const NetEaseUI = (() => {
         var detailPanel = document.getElementById('netease-playlist-detail');
         if (!resultsPanel) return;
 
+        lastSearchKeywords = keywords;
         resultsPanel.classList.remove('hidden');
         if (contentEl) contentEl.classList.add('hidden');
         if (detailPanel) detailPanel.classList.add('hidden');
@@ -643,9 +721,18 @@ const NetEaseUI = (() => {
         headerEl.innerHTML = '<div class="netease-loading">加载中...</div>';
         tracksEl.innerHTML = '';
 
-        var data = await NetEaseAPI.getArtist(id);
+        var data = null;
+        for (var retry = 0; retry < 3; retry++) {
+            data = await NetEaseAPI.getArtist(id);
+            if (data && data.hotSongs) break;
+            if (retry < 2) {
+                headerEl.innerHTML = '<div class="netease-loading">加载中... (' + (retry + 2) + '/3)</div>';
+                await new Promise(function(r) { setTimeout(r, 1000); });
+            }
+        }
+
         if (!data || !data.hotSongs) {
-            headerEl.innerHTML = '<div class="netease-empty">加载失败</div>';
+            headerEl.innerHTML = '<div class="netease-empty">加载失败 <button class="netease-retry-btn" onclick="loadArtistTracks(' + id + ')">重试</button></div>';
             return;
         }
 
@@ -669,8 +756,19 @@ const NetEaseUI = (() => {
 
         document.getElementById('netease-back-btn').addEventListener('click', function() {
             detailPanel.classList.add('hidden');
-            if (contentEl) contentEl.classList.remove('hidden');
-            if (loginBar) loginBar.classList.remove('hidden');
+            var searchInput = document.getElementById('netease-search-input');
+            var hasSearch = searchInput && searchInput.value.trim().length > 0;
+            
+            if (hasSearch) {
+                var searchResults = document.getElementById('netease-search-results');
+                var searchTabs = document.getElementById('netease-search-tabs');
+                if (searchResults) searchResults.classList.remove('hidden');
+                if (searchTabs) searchTabs.classList.remove('hidden');
+            } else {
+                if (contentEl) contentEl.classList.remove('hidden');
+                if (loginBar) loginBar.classList.remove('hidden');
+                if (isLoggedIn) loadUserPlaylists();
+            }
         });
 
         var artistName = data.artist ? data.artist.name : '歌手';

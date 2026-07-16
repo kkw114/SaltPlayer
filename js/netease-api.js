@@ -16,6 +16,10 @@ const NetEaseAPI = (() => {
             var csrf = extractCookie(c, '__csrf');
             if (musicU) localStorage.setItem('netease-music-u', musicU);
             if (csrf) localStorage.setItem('netease-csrf', csrf);
+            // Save full cookie for restoreLogin
+            localStorage.setItem('netease-cookie', c);
+        } else {
+            localStorage.removeItem('netease-cookie');
         }
     }
 
@@ -68,20 +72,86 @@ const NetEaseAPI = (() => {
     }
 
     async function getSongUrl(id, br) {
-        // Get quality from settings
         var quality = '320000';
         if (typeof Settings !== 'undefined') {
             quality = Settings.get('neteaseQuality') || '320000';
         }
-        if (quality === 'flac') quality = '350000'; // API uses 350000 for lossless
+        if (quality === 'flac') quality = '350000';
         br = br || quality;
-        var url = BASE + '/song/url?id=' + id + '&br=' + br + getCookieParam();
-        return request(url);
+        
+        var idArr = String(id).split(',');
+        var batchSize = 100;
+        var concurrency = 5; // 并发数
+        var batches = [];
+        
+        for (var i = 0; i < idArr.length; i += batchSize) {
+            batches.push(idArr.slice(i, i + batchSize));
+        }
+        
+        // 并发请求
+        var allData = [];
+        var queue = batches.slice();
+        async function fetchBatch() {
+            while (queue.length > 0) {
+                var batch = queue.shift();
+                var batchIds = batch.join(',');
+                var url = BASE + '/song/url?id=' + batchIds + '&br=' + br + getCookieParam();
+                var result = await request(url);
+                if (result && result.data) {
+                    allData = allData.concat(result.data);
+                }
+            }
+        }
+        
+        var workers = [];
+        for (var i = 0; i < Math.min(concurrency, batches.length); i++) {
+            workers.push(fetchBatch());
+        }
+        await Promise.all(workers);
+        
+        // 处理 URL
+        allData.forEach(function(item) {
+            if (item.url) {
+                if (item.url.startsWith('http://')) {
+                    item.url = item.url.replace('http://', 'https://');
+                }
+            }
+        });
+        
+        return { data: allData };
     }
 
     async function getSongDetail(ids) {
-        var url = BASE + '/song/detail?ids=' + ids + getCookieParam();
-        return request(url);
+        var idArr = String(ids).split(',');
+        var batchSize = 100;
+        var concurrency = 5;
+        var batches = [];
+        
+        for (var i = 0; i < idArr.length; i += batchSize) {
+            batches.push(idArr.slice(i, i + batchSize));
+        }
+        
+        var allSongs = [];
+        var queue = batches.slice();
+        async function fetchBatch() {
+            while (queue.length > 0) {
+                var batch = queue.shift();
+                var batchIds = batch.join(',');
+                var url = BASE + '/song/detail?ids=' + batchIds + getCookieParam();
+                var result = await request(url);
+                if (result && result.songs) {
+                    allSongs = allSongs.concat(result.songs);
+                }
+            }
+        }
+        
+        var workers = [];
+        for (var i = 0; i < Math.min(concurrency, batches.length); i++) {
+            workers.push(fetchBatch());
+        }
+        await Promise.all(workers);
+        
+        return { songs: allSongs };
     }
 
     async function getLyric(id) {
@@ -91,7 +161,44 @@ const NetEaseAPI = (() => {
 
     async function getPlaylistDetail(id) {
         var url = BASE + '/playlist/detail?id=' + id + getCookieParam();
-        return request(url);
+        var result = await request(url);
+        
+        // 如果歌单有超过1000首歌，需要分批获取
+        if (result && result.playlist && result.playlist.trackIds && 
+            result.playlist.trackIds.length > 1000 && 
+            result.playlist.tracks && result.playlist.tracks.length < result.playlist.trackIds.length) {
+            
+            var allTrackIds = result.playlist.trackIds.map(function(t) { return t.id; });
+            var existingIds = new Set(result.playlist.tracks.map(function(t) { return t.id; }));
+            var missingIds = allTrackIds.filter(function(id) { return !existingIds.has(id); });
+            
+            // 分批获取缺失的歌曲详情
+            var batchSize = 100;
+            var concurrency = 5;
+            var batches = [];
+            for (var i = 0; i < missingIds.length; i += batchSize) {
+                batches.push(missingIds.slice(i, i + batchSize));
+            }
+            
+            var queue = batches.slice();
+            async function fetchBatch() {
+                while (queue.length > 0) {
+                    var batch = queue.shift();
+                    var detailResult = await getSongDetail(batch.join(','));
+                    if (detailResult && detailResult.songs) {
+                        result.playlist.tracks = result.playlist.tracks.concat(detailResult.songs);
+                    }
+                }
+            }
+            
+            var workers = [];
+            for (var i = 0; i < Math.min(concurrency, batches.length); i++) {
+                workers.push(fetchBatch());
+            }
+            await Promise.all(workers);
+        }
+        
+        return result;
     }
 
     async function getPersonalized(limit) {

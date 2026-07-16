@@ -73,7 +73,7 @@ const AudioEngine = (() => {
             url = URL.createObjectURL(source);
             currentObjectUrl = url;
         } else if (typeof source === 'string') {
-            url = source;
+            url = proxyNeteaseUrl(source);
             // Check cache for URL-based sources
             var cached = getCachedUrl(url);
             if (cached) {
@@ -129,7 +129,7 @@ const AudioEngine = (() => {
         isPlaying = false;
         var url;
         if (source instanceof File) { url = URL.createObjectURL(source); currentObjectUrl = url; }
-        else if (typeof source === 'string') { url = source; }
+        else if (typeof source === 'string') { url = proxyNeteaseUrl(source); }
         else return;
 
         sound = new Howl({
@@ -196,26 +196,56 @@ const AudioEngine = (() => {
     let seekTimer = null;
     let isSeeking = false;
 
+    // ponytail: direct node access for CDN URLs where Howler seek() fails
+    function getAudioNode() {
+        try {
+            if (sound && sound._sounds && sound._sounds[0] && sound._sounds[0]._node) {
+                return sound._sounds[0]._node;
+            }
+        } catch(e) {}
+        return null;
+    }
+
+    // Proxy NetEase CDN URLs through server for seeking support
+    function proxyNeteaseUrl(url) {
+        if (!url || typeof url !== 'string') return url;
+        // Only proxy direct CDN URLs (http...music.126.net), skip already-proxied /api/ paths
+        if (url.startsWith('http') && (url.indexOf('.music.126.net') > -1 || url.indexOf('.music.163.com') > -1)) {
+            return '/api/netease/stream?url=' + encodeURIComponent(url);
+        }
+        return url;
+    }
+
     function seek(time) {
         if (sound) {
-            // Debounce rapid seeks
-            if (seekTimer) clearTimeout(seekTimer);
-            isSeeking = true;
-            seekTimer = setTimeout(function() {
-                sound.seek(time);
-                isSeeking = false;
-            }, 50);
+            var node = getAudioNode();
+            if (node) {
+                // Direct seek on native audio element - works on remote CDN URLs
+                try { node.currentTime = time; } catch(e) {}
+            } else {
+                // Fallback to Howler seek with debounce
+                if (seekTimer) clearTimeout(seekTimer);
+                isSeeking = true;
+                seekTimer = setTimeout(function() {
+                    sound.seek(time);
+                    isSeeking = false;
+                }, 50);
+            }
             // Emit timeupdate immediately for UI responsiveness
+            var dur = sound.duration();
+            if (!dur || !isFinite(dur)) {
+                dur = (node && node.duration && isFinite(node.duration)) ? node.duration : 0;
+            }
             emit('timeupdate', {
                 current: time,
-                duration: sound.duration()
+                duration: dur
             });
         }
     }
 
     function seekPercent(percent) {
-        if (sound) {
-            const duration = sound.duration();
+        var duration = getDuration();
+        if (duration > 0) {
             seek(duration * Math.max(0, Math.min(1, percent)));
         }
     }
@@ -240,11 +270,22 @@ const AudioEngine = (() => {
     }
 
     function getPosition() {
-        return sound ? sound.seek() : 0;
+        if (!sound) return 0;
+        var node = getAudioNode();
+        return node ? node.currentTime : sound.seek();
     }
 
     function getDuration() {
-        return sound ? sound.duration() : 0;
+        if (!sound) return 0;
+        var d = sound.duration();
+        // ponytail: Howler may return Infinity on remote CDN URLs
+        if (!d || !isFinite(d)) {
+            var node = getAudioNode();
+            if (node && node.duration && isFinite(node.duration)) {
+                return node.duration;
+            }
+        }
+        return d;
     }
 
     function setRate(rate) {
@@ -265,8 +306,13 @@ const AudioEngine = (() => {
         stopTimeUpdate();
         updateInterval = setInterval(() => {
             if (sound && isPlaying && !isSeeking) {
-                var current = sound.seek();
+                var node = getAudioNode();
+                var current = node ? node.currentTime : sound.seek();
                 var duration = sound.duration();
+                // ponytail: fallback duration from native node
+                if (!duration || !isFinite(duration)) {
+                    duration = (node && node.duration && isFinite(node.duration)) ? node.duration : 0;
+                }
                 emit('timeupdate', {
                     current: current,
                     duration: duration
@@ -275,10 +321,13 @@ const AudioEngine = (() => {
                 if (duration > 0 && current > 0 && current >= duration - 0.5) {
                     // Let onend handle it naturally, but force if stuck
                     setTimeout(function() {
-                        if (sound && isPlaying && sound.seek() >= duration - 0.3) {
-                            isPlaying = false;
-                            stopTimeUpdate();
-                            emit('end');
+                        if (sound && isPlaying) {
+                            var c = node ? node.currentTime : sound.seek();
+                            if (c >= duration - 0.3) {
+                                isPlaying = false;
+                                stopTimeUpdate();
+                                emit('end');
+                            }
                         }
                     }, 1000);
                 }

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>网易云登录 - Cookie获取工具</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #fff; min-height: 100vh; display: flex; justify-content: center; align-items: center; }
+        .container { background: #16213e; padding: 40px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); text-align: center; max-width: 400px; width: 90%; }
+        h1 { font-size: 24px; margin-bottom: 20px; color: #e94560; }
+        .qr-box { background: #fff; padding: 20px; border-radius: 12px; margin: 20px 0; min-height: 200px; display: flex; justify-content: center; align-items: center; }
+        .qr-box img { max-width: 200px; }
+        .status { margin: 15px 0; font-size: 14px; color: #aaa; }
+        .status.success { color: #4ecca3; }
+        .status.error { color: #e94560; }
+        .cookie-box { background: #0f3460; padding: 15px; border-radius: 8px; margin-top: 20px; text-align: left; display: none; }
+        .cookie-box h3 { color: #4ecca3; margin-bottom: 10px; font-size: 14px; }
+        .cookie-box textarea { width: 100%; height: 120px; background: #1a1a2e; border: 1px solid #4ecca3; color: #fff; padding: 10px; border-radius: 6px; font-size: 12px; resize: none; }
+        .btn { background: #e94560; color: #fff; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 16px; margin-top: 15px; }
+        .btn:hover { background: #c73650; }
+        .btn:disabled { background: #666; cursor: not-allowed; }
+        .copy-btn { background: #4ecca3; margin-top: 10px; }
+        .copy-btn:hover { background: #3da88a; }
+        .tip { font-size: 12px; color: #666; margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>网易云扫码登录</h1>
+        <div class="qr-box" id="qrBox">
+            <span style="color:#999">正在加载二维码...</span>
+        </div>
+        <div class="status" id="status">请用网易云APP扫码</div>
+        <button class="btn" id="refreshBtn" onclick="getQrCode()">刷新二维码</button>
+        
+        <div class="cookie-box" id="cookieBox">
+            <h3>登录成功！Cookie：</h3>
+            <textarea id="cookieText" readonly></textarea>
+            <button class="btn copy-btn" onclick="copyCookie()">复制Cookie</button>
+            <button class="btn" onclick="sendToPlayer()" style="background:#0f3460">发送到播放器</button>
+        </div>
+        
+        <div class="tip">
+            <p>1. 用网易云APP扫描二维码</p>
+            <p>2. 在APP上确认登录</p>
+            <p>3. 复制Cookie到播放器</p>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api/netease';
+        let qrKey = '';
+        let checkTimer = null;
+
+        async function getQrCode() {
+            document.getElementById('status').className = 'status';
+            document.getElementById('status').textContent = '正在获取二维码...';
+            document.getElementById('qrBox').innerHTML = '<span style="color:#999">加载中...</span>';
+            document.getElementById('cookieBox').style.display = 'none';
+            
+            if (checkTimer) { clearInterval(checkTimer); checkTimer = null; }
+
+            try {
+                // 获取key
+                const keyRes = await fetch(API + '/login/qr/key?timestamp=' + Date.now());
+                const keyData = await keyRes.json();
+                // 兼容两种返回格式
+                const unikey = (keyData.data && keyData.data.unikey) || 
+                               (keyData.body && keyData.body.data && keyData.body.data.unikey);
+                if (!unikey) {
+                    throw new Error('获取key失败: ' + JSON.stringify(keyData));
+                }
+                qrKey = unikey;
+
+                // 生成二维码
+                const qrRes = await fetch(API + '/login/qr/create?key=' + qrKey + '&qrimg=true&timestamp=' + Date.now());
+                const qrData = await qrRes.json();
+                
+                // 兼容两种返回格式
+                const qrimg = (qrData.data && qrData.data.qrimg) || 
+                              (qrData.body && qrData.body.data && qrData.body.data.qrimg);
+                
+                if (qrimg) {
+                    document.getElementById('qrBox').innerHTML = '<img src="' + qrimg + '" alt="二维码">';
+                    document.getElementById('status').textContent = '请用网易云APP扫码';
+                    startCheck();
+                } else {
+                    throw new Error('生成二维码失败: ' + JSON.stringify(qrData));
+                }
+            } catch (e) {
+                document.getElementById('status').className = 'status error';
+                document.getElementById('status').textContent = '错误: ' + e.message;
+                document.getElementById('qrBox').innerHTML = '<span style="color:#e94560">加载失败</span>';
+            }
+        }
+
+        function startCheck() {
+            checkTimer = setInterval(async () => {
+                try {
+                    const res = await fetch(API + '/login/qr/check?key=' + qrKey + '&timestamp=' + Date.now());
+                    const data = await res.json();
+                    
+                    // 兼容两种返回格式
+                    const code = data.code || (data.body && data.body.code);
+                    const cookie = data.cookie || (data.body && data.body.cookie);
+                    
+                    if (code === 803) {
+                        // 登录成功
+                        clearInterval(checkTimer);
+                        checkTimer = null;
+                        document.getElementById('status').className = 'status success';
+                        document.getElementById('status').textContent = '登录成功！';
+                        document.getElementById('cookieBox').style.display = 'block';
+                        document.getElementById('cookieText').value = cookie || '';
+                    } else if (code === 801) {
+                        document.getElementById('status').textContent = '等待扫码...';
+                    } else if (code === 802) {
+                        document.getElementById('status').textContent = '已扫码，等待确认...';
+                    } else if (code === 800) {
+                        // 二维码过期
+                        clearInterval(checkTimer);
+                        checkTimer = null;
+                        document.getElementById('status').className = 'status error';
+                        document.getElementById('status').textContent = '二维码已过期，请刷新';
+                    }
+                } catch (e) {
+                    // 忽略网络错误，继续轮询
+                }
+            }, 2000);
+        }
+
+        function copyCookie() {
+            const textarea = document.getElementById('cookieText');
+            textarea.select();
+            document.execCommand('copy');
+            alert('Cookie已复制！');
+        }
+
+        function sendToPlayer() {
+            const cookie = document.getElementById('cookieText').value;
+            if (cookie) {
+                // 跳转到播放器页面并传递cookie
+                const playerUrl = window.location.origin;
+                const w = window.open(playerUrl);
+                setTimeout(() => {
+                    try {
+                        w.NetEaseAPI.setCookie(cookie);
+                        alert('已发送到播放器！');
+                    } catch (e) {
+                        alert('请在播放器页面F12控制台执行:\nNetEaseAPI.setCookie("' + cookie.substring(0, 50) + '...")');
+                    }
+                }, 2000);
+            }
+        }
+
+        // 页面加载后自动获取二维码
+        getQrCode();
+    </script>
+</body>
+</html>

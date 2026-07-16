@@ -4,6 +4,21 @@
  * Inspired by refined-now-playing-netease
  */
 
+// showToast 备用函数（如果 app.js 还没加载）
+if (typeof window.showToast !== 'function') {
+    window.showToast = function(msg) {
+        var toast = document.createElement('div');
+        toast.className = 'toast-message';
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(function() { toast.classList.add('show'); }, 10);
+        setTimeout(function() {
+            toast.classList.remove('show');
+            setTimeout(function() { toast.remove(); }, 300);
+        }, 2000);
+    };
+}
+
 const UI = (() => {
     const els = {};
 
@@ -351,6 +366,43 @@ const UI = (() => {
                 AudioEngine.setVolume(pct);
                 updateVolumeUI(pct, false);
                 Settings.set('volume', Math.round(pct * 100));
+            });
+
+            // Touch: swipe up to increase, down to decrease
+            var touchStartY = 0;
+            var touchStartVol = 0;
+            barTrack.addEventListener('touchstart', function(e) {
+                touchStartY = e.touches[0].clientY;
+                touchStartVol = AudioEngine.getVolume();
+            }, { passive: true });
+            barTrack.addEventListener('touchmove', function(e) {
+                e.preventDefault();
+                var rect = barTrack.getBoundingClientRect();
+                var deltaY = touchStartY - e.touches[0].clientY;
+                var pct = Math.max(0, Math.min(1, touchStartVol + deltaY / rect.height));
+                AudioEngine.setVolume(pct);
+                updateVolumeUI(pct, false);
+            }, { passive: false });
+        }
+
+        // Volume button touch: swipe up to increase, down to decrease
+        var btnMute = document.getElementById('btn-mute');
+        if (btnMute) {
+            var touchStartY = 0;
+            var touchStartVol = 0;
+            btnMute.addEventListener('touchstart', function(e) {
+                touchStartY = e.touches[0].clientY;
+                touchStartVol = AudioEngine.getVolume();
+            }, { passive: true });
+            btnMute.addEventListener('touchmove', function(e) {
+                e.preventDefault();
+                var deltaY = touchStartY - e.touches[0].clientY;
+                var pct = Math.max(0, Math.min(1, touchStartVol + deltaY / 200));
+                AudioEngine.setVolume(pct);
+                updateVolumeUI(pct, false);
+            }, { passive: false });
+            btnMute.addEventListener('touchend', function() {
+                Settings.set('volume', Math.round(AudioEngine.getVolume() * 100));
             });
         }
     }
@@ -1198,7 +1250,12 @@ const UI = (() => {
             var reader = new FileReader();
             reader.onload = function(ev) {
                 try {
-                    var importData = JSON.parse(ev.target.result);
+                    var text = ev.target.result;
+                    // 去除 // 注释
+                    text = text.replace(/\/\/.*$/gm, '');
+                    // 去除尾随逗号
+                    text = text.replace(/,\s*([\]}])/g, '$1');
+                    var importData = JSON.parse(text);
                     // 过滤掉注释字段（以 _comment 开头）
                     var data = {};
                     Object.keys(importData).forEach(function(key) {
@@ -1331,6 +1388,8 @@ const UI = (() => {
                 '<div class="settings-sep"></div>' +
                 group('网易云') +
                 toggle('neteaseDefaultDaily', '每日推荐为默认页', s.get('neteaseDefaultDaily')) +
+                toggle('neteaseLyrics', '网易云歌词（无本地歌词时自动获取）', s.get('neteaseLyrics')) +
+                (s.get('neteaseLyrics') ? toggle('neteaseLyricsPriority', '网易云歌词优先（优先于本地歌词）', s.get('neteaseLyricsPriority')) : '') +
                 '<div class="settings-sep"></div>' +
                 selectGroup('neteaseQuality', [
                     { value: '192000', label: '标准' },
@@ -1348,6 +1407,8 @@ const UI = (() => {
                     ], s.get('neteaseVipType'), 'VIP状态修正') : '') +
                 '<div class="settings-sep"></div>' +
                 group('配置') +
+                toggle('cloudSync', '云端同步（跨设备迷你模式）', s.get('cloudSync')) +
+                '<div class="settings-hint">开启后迷你模式可从其他设备获取播放状态</div>' +
                 '<div class="settings-row" style="gap:8px"><button class="settings-btn" onclick="typeof UI!==\'undefined\'&&UI.exportSettings()">导出配置</button><button class="settings-btn" onclick="typeof UI!==\'undefined\'&&UI.importSettings()">导入配置</button></div>' +
                 '<div class="settings-sep"></div>' +
                 group('调试') +
@@ -1437,6 +1498,7 @@ const UI = (() => {
                 toggle('lyricZoom', '缩放效果', s.get('lyricZoom')) +
                 toggle('lyricBlur', '模糊效果', s.get('lyricBlur')) +
                 toggle('showTranslation', '显示翻译', s.get('showTranslation')) +
+                toggle('karaokeLyrics', '逐字歌词', s.get('karaokeLyrics')) +
                 '<div class="settings-sep"></div>' + group('位置') +
                 selectGroup('lyricAlign', [
                     { value: 'left', label: '居左' },

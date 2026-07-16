@@ -3,15 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const { parseFile, parseBuffer } = require('music-metadata');
 
-// NetEase Cloud Music API
+// NetEase Cloud Music API - loaded async before server starts
 let neteaseApi = null;
-try {
-    neteaseApi = require('@neteasecloudmusicapienhanced/api');
-    console.log('NetEase Cloud Music API loaded');
-} catch (e) {
-    console.warn('NetEase API not available:', e.message);
-}
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 const MUSIC_DIR = process.env.MUSIC_DIR || path.join(__dirname, 'music');
@@ -22,10 +15,8 @@ app.use(express.static(__dirname));
 app.use('/music', express.static(MUSIC_DIR));
 app.use(express.json());
 
-// NetEase Cloud Music API proxy routes
-if (neteaseApi) {
-    // Generic proxy handler for NetEase API
-    async function proxyNeteaseApi(apiName, params) {
+// NetEase Cloud Music API proxy routes (neteaseApi loaded async at startup)
+async function proxyNeteaseApi(apiName, params) {
         try {
             if (typeof neteaseApi[apiName] !== 'function') {
                 throw new Error('API not found: ' + apiName);
@@ -229,6 +220,17 @@ if (neteaseApi) {
         } catch (e) { res.status(500).json({ error: e.message }); }
     });
 
+    // Get artist hot songs
+    app.get('/api/netease/artists', async (req, res) => {
+        try {
+            const { id } = req.query;
+            if (!id) return res.status(400).json({ error: 'id required' });
+            const cookie = getCookieFromReq(req);
+            const result = await proxyNeteaseApi('artists', { id: Number(id), cookie });
+            res.json(result);
+        } catch (e) { res.status(500).json({ error: e.message }); }
+    });
+
     // Proxy cover image to avoid CORS
     app.get('/api/netease/cover', async (req, res) => {
         try {
@@ -282,8 +284,56 @@ if (neteaseApi) {
         } catch (e) { res.status(500).end(); }
     });
 
-    console.log('NetEase API routes registered at /api/netease/*');
-}
+    // Stream proxy for NetEase audio (enables seeking via Range requests)
+    app.get('/api/netease/stream', (req, res) => {
+        (async () => {
+            try {
+                const { url } = req.query;
+                if (!url) return res.status(400).end();
+                const https = require('https');
+                const http = require('http');
+                const targetUrl = decodeURIComponent(url);
+                const isHttps = targetUrl.startsWith('https');
+                const mod = isHttps ? https : http;
+                const options = {
+                    headers: {
+                        'Referer': 'https://music.163.com/',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                };
+                if (req.headers.range) options.headers['Range'] = req.headers.range;
+                mod.get(targetUrl, options, (proxyRes) => {
+                    // Follow redirects
+                    if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
+                        const redirectUrl = proxyRes.headers.location;
+                        const rIsHttps = redirectUrl.startsWith('https');
+                        const rMod = rIsHttps ? https : http;
+                        const rOptions = { headers: options.headers };
+                        if (req.headers.range) rOptions.headers['Range'] = req.headers.range;
+                        rMod.get(redirectUrl, rOptions, (redirectRes) => {
+                            res.status(redirectRes.statusCode);
+                            if (redirectRes.headers['content-type']) res.set('Content-Type', redirectRes.headers['content-type']);
+                            if (redirectRes.headers['content-length']) res.set('Content-Length', redirectRes.headers['content-length']);
+                            if (redirectRes.headers['content-range']) res.set('Content-Range', redirectRes.headers['content-range']);
+                            if (redirectRes.headers['accept-ranges']) res.set('Accept-Ranges', redirectRes.headers['accept-ranges']);
+                            res.set('Cache-Control', 'public, max-age=3600');
+                            redirectRes.pipe(res);
+                        }).on('error', () => res.status(502).end());
+                        return;
+                    }
+                    res.status(proxyRes.statusCode);
+                    if (proxyRes.headers['content-type']) res.set('Content-Type', proxyRes.headers['content-type']);
+                    if (proxyRes.headers['content-length']) res.set('Content-Length', proxyRes.headers['content-length']);
+                    if (proxyRes.headers['content-range']) res.set('Content-Range', proxyRes.headers['content-range']);
+                    if (proxyRes.headers['accept-ranges']) res.set('Accept-Ranges', proxyRes.headers['accept-ranges']);
+                    res.set('Cache-Control', 'public, max-age=3600');
+                    proxyRes.pipe(res);
+                }).on('error', (e) => { console.error('Stream proxy error:', e.message); res.status(502).end(); });
+            } catch(e) { console.error('Stream proxy error:', e); res.status(500).end(); }
+        })();
+    });
+
+console.log('NetEase API routes registered at /api/netease/*');
 
 // WebDAV session store
 const webdavSessions = {};
@@ -488,6 +538,19 @@ function cleanFilename(name) {
     return name.replace(/\.[^.]+$/, '').replace(/^\d+[.\-\s]+/, '').replace(/_/g, ' ').trim();
 }
 
+function parseArtistTitle(name) {
+    try {
+        var base = cleanFilename(name);
+        var parts = base.split(' - ');
+        if (parts.length >= 2) {
+            return { artist: parts[0].trim(), title: parts.slice(1).join(' - ').trim() };
+        }
+        return { artist: '', title: base };
+    } catch(e) {
+        return { artist: '', title: cleanFilename(name) };
+    }
+}
+
 async function getMeta(fullPath) {
     if (metaCache.has(fullPath)) return metaCache.get(fullPath);
     const meta = await parseFile(fullPath);
@@ -574,8 +637,91 @@ function scanFlat(dir, basePath) {
     return results;
 }
 
+// 文件夹缓存
+let foldersCache = null;
+let foldersCacheTime = 0;
+const FOLDERS_CACHE_TTL = 60000; // 缓存1分钟
+
+// 预生成索引：包含文件夹列表和每个文件夹的歌曲名称
+let presetIndex = null;
+let presetIndexTime = 0;
+
+function generatePresetIndex() {
+    const subfolders = [];
+    let entries;
+    try {
+        entries = fs.readdirSync(MUSIC_DIR, { withFileTypes: true });
+    } catch(e) {
+        console.warn('Read music dir failed:', e.message);
+        return { generated: Date.now(), subfolders: [], rootSongs: [] };
+    }
+    for (const entry of entries) {
+        if (entry.isDirectory()) {
+            const dirPath = path.join(MUSIC_DIR, entry.name);
+            const songs = [];
+            try {
+                const files = fs.readdirSync(dirPath, { withFileTypes: true });
+                for (const f of files) {
+                    if (f.isFile() && AUDIO_EXTS.includes(path.extname(f.name).toLowerCase())) {
+                        const baseName = f.name.replace(/\.[^.]+$/, '');
+                        const hasLrc = files.some(x => x.isFile() && x.name === baseName + '.lrc');
+                        const relPath = entry.name + '/' + f.name;
+                        var at = parseArtistTitle(f.name);
+                        songs.push({ name: at.title, artist: at.artist, file: relPath, hasLrc });
+                    }
+                }
+                songs.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-Hans-CN'));
+            } catch(e) { console.warn('Read dir failed:', dirPath, e.message); }
+            subfolders.push({ name: entry.name, count: songs.length, songs });
+        }
+    }
+    subfolders.sort((a, b) => {
+        const numA = parseInt(a.name.split('-')[0]) || 0;
+        const numB = parseInt(b.name.split('-')[0]) || 0;
+        if (numA !== numB) return numA - numB;
+        return a.name.localeCompare(b.name);
+    });
+    const rootSongs = [];
+    try {
+        const rootFiles = fs.readdirSync(MUSIC_DIR, { withFileTypes: true });
+        for (const f of rootFiles) {
+            if (f.isFile() && AUDIO_EXTS.includes(path.extname(f.name).toLowerCase())) {
+                const baseName = f.name.replace(/\.[^.]+$/, '');
+                const hasLrc = rootFiles.some(x => x.isFile() && x.name === baseName + '.lrc');
+                var at = parseArtistTitle(f.name);
+                rootSongs.push({ name: at.title, artist: at.artist, file: f.name, hasLrc });
+            }
+        }
+        rootSongs.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+    } catch(e) {}
+    presetIndex = { generated: Date.now(), subfolders, rootSongs };
+    presetIndexTime = Date.now();
+    return presetIndex;
+}
+
+app.get('/api/preset', (req, res) => {
+    try {
+        if (!presetIndex) generatePresetIndex();
+        res.json(presetIndex);
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/preset/refresh', (req, res) => {
+    try {
+        generatePresetIndex();
+        res.json({ ok: true, generated: presetIndex.generated });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/folders', (req, res) => {
     try {
+        // 使用缓存
+        const now = Date.now();
+        if (foldersCache && (now - foldersCacheTime) < FOLDERS_CACHE_TTL) {
+            res.json(foldersCache);
+            return;
+        }
+
         const subfolders = [];
         const entries = fs.readdirSync(MUSIC_DIR, { withFileTypes: true });
         for (const entry of entries) {
@@ -584,16 +730,32 @@ app.get('/api/folders', (req, res) => {
                 subfolders.push({ name: entry.name, path: entry.name, count });
             }
         }
+        // 按数字排序文件夹名称（支持 "1-100" 格式）
+        subfolders.sort((a, b) => {
+            const numA = parseInt(a.name.split('-')[0]) || 0;
+            const numB = parseInt(b.name.split('-')[0]) || 0;
+            if (numA !== numB) return numA - numB;
+            return a.name.localeCompare(b.name);
+        });
         // Count files in root
         const rootCount = countAudioFiles(MUSIC_DIR);
         // Also count files recursively in subfolders (for "all" indicator)
         let totalCount = rootCount;
         for (const sf of subfolders) totalCount += sf.count;
-        res.json({ subfolders, rootCount, totalCount });
+        
+        foldersCache = { subfolders, rootCount, totalCount };
+        foldersCacheTime = now;
+        
+        res.json(foldersCache);
     } catch(e) {
         res.status(500).json({ error: e.message });
     }
 });
+
+// 文件列表缓存
+let filesCache = {};
+let filesCacheTime = {};
+const FILES_CACHE_TTL = 60000; // 缓存1分钟
 
 app.get('/api/files', async (req, res) => {
     try {
@@ -605,41 +767,39 @@ app.get('/api/files', async (req, res) => {
             if (!dir.startsWith(MUSIC_DIR)) { res.status(403).end(); return; }
             basePath = sub;
         }
+        
+        // 使用缓存
+        const cacheKey = basePath || '__root__';
+        const now = Date.now();
+        if (filesCache[cacheKey] && (now - filesCacheTime[cacheKey]) < FILES_CACHE_TTL) {
+            res.json(filesCache[cacheKey]);
+            return;
+        }
+        
         const files = sub ? scanFlat(dir, basePath) : await scanRecursive(MUSIC_DIR, '');
         files.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
 
+        // 只加载文件名，不加载元数据（减少内存和启动时间）
         const tracks = [];
         for (const f of files) {
-            try {
-                const { meta, coverBuffer } = await getMeta(f.fullPath);
-                tracks.push({
-                    name: f.name,
-                    title: meta.common.title || cleanFilename(f.name),
-                    artist: meta.common.artist || '未知艺术家',
-                    album: meta.common.album || '未知专辑',
-                    hasCover: !!coverBuffer,
-                    track: meta.common.track && meta.common.track.no ? String(meta.common.track.no) : '',
-                    year: meta.common.year || '',
-                    genre: meta.common.genre && meta.common.genre.length ? meta.common.genre[0] : '',
-                    url: '/music/' + f.relPath,
-                    lrcUrl: f.hasLrc ? '/music/' + f.lrcRelPath : null
-                });
-            } catch (e) {
-                console.warn('Metadata error for', f.name, e.message);
-                tracks.push({
-                    name: f.name,
-                    title: cleanFilename(f.name),
-                    artist: '未知艺术家',
-                    album: '未知专辑',
-                    hasCover: false,
-                    track: '',
-                    year: '',
-                    genre: '',
-                    url: '/music/' + f.relPath,
-                    lrcUrl: f.hasLrc ? '/music/' + f.lrcRelPath : null
-                });
-            }
+            var at = parseArtistTitle(f.name);
+            tracks.push({
+                name: f.name,
+                title: at.title,
+                artist: at.artist || '未知艺术家',
+                album: '未知专辑',
+                hasCover: false,
+                track: '',
+                year: '',
+                genre: '',
+                url: '/music/' + f.relPath,
+                lrcUrl: f.hasLrc ? '/music/' + f.lrcRelPath : null
+            });
         }
+        
+        filesCache[cacheKey] = tracks;
+        filesCacheTime[cacheKey] = now;
+        
         res.json(tracks);
     } catch (e) {
         console.error('API error:', e);
@@ -647,14 +807,33 @@ app.get('/api/files', async (req, res) => {
     }
 });
 
+// 封面缓存
+const coverCache = new Map();
+const COVER_CACHE_TTL = 3600000; // 缓存1小时
+
 app.get('/api/cover', async (req, res) => {
     try {
         const file = req.query.file;
         if (!file) { res.status(400).end(); return; }
         const fullPath = path.join(MUSIC_DIR, file);
         if (!fullPath.startsWith(MUSIC_DIR)) { res.status(403).end(); return; }
+        
+        // 检查缓存
+        const cacheKey = file;
+        const cached = coverCache.get(cacheKey);
+        if (cached && (Date.now() - cached.time) < COVER_CACHE_TTL) {
+            res.set('Content-Type', cached.format);
+            res.set('Cache-Control', 'public, max-age=86400');
+            res.send(cached.data);
+            return;
+        }
+        
         const { coverBuffer, coverFormat } = await getMeta(fullPath);
         if (!coverBuffer) { res.status(404).end(); return; }
+        
+        // 存入缓存
+        coverCache.set(cacheKey, { data: coverBuffer, format: coverFormat, time: Date.now() });
+        
         res.set('Content-Type', coverFormat);
         res.set('Cache-Control', 'public, max-age=86400');
         res.send(coverBuffer);
@@ -716,18 +895,56 @@ app.get('/mini/st', (req, res) => {
     res.sendFile(path.join(__dirname, 'mini-settings.html'));
 });
 
-app.listen(PORT, '::', () => {
-    const os = require('os');
-    const ifaces = os.networkInterfaces();
-    console.log('Server running on:');
-    console.log('  http://localhost:' + PORT);
-    for (const [name, addrs] of Object.entries(ifaces)) {
-        for (const addr of addrs) {
-            if (!addr.internal) {
-                const host = addr.family === 'IPv6' ? '[' + addr.address + ']' : addr.address;
-                console.log('  http://' + host + ':' + PORT + '  (' + name + ')');
+(async () => {
+    // Generate anonymous token + Chinese IP before API module loads
+    try {
+        const generateConfig = require('@neteasecloudmusicapienhanced/api/generateConfig');
+        await generateConfig();
+        console.log('NetEase API config generated (anonymous token + IP)');
+    } catch (e) {
+        console.warn('generateConfig failed:', e.message);
+    }
+
+    // Now load the API module (request.js will read the fresh anonymous_token)
+    try {
+        neteaseApi = require('@neteasecloudmusicapienhanced/api');
+        console.log('NetEase Cloud Music API loaded');
+    } catch (e) {
+        console.warn('NetEase API not available:', e.message);
+    }
+
+    app.listen(PORT, '::', () => {
+        const os = require('os');
+        const ifaces = os.networkInterfaces();
+        console.log('Server running:');
+        console.log('  http://localhost:' + PORT);
+        for (const [name, addrs] of Object.entries(ifaces)) {
+            for (const addr of addrs) {
+                if (!addr.internal) {
+                    const host = addr.family === 'IPv6' ? '[' + addr.address + ']' : addr.address;
+                    console.log('  http://' + host + ':' + PORT + '  (' + name + ')');
+                }
             }
         }
-    }
-    console.log('Music dir:', MUSIC_DIR);
-});
+        console.log('Music dir:', MUSIC_DIR);
+
+        // 生成预置索引
+        generatePresetIndex();
+        console.log('Preset index generated');
+
+        // 监听音乐目录变化，自动重新生成索引
+        let watcherBusy = false;
+        let watcherTimer = null;
+        try {
+            fs.watch(MUSIC_DIR, { recursive: true }, () => {
+                if (watcherBusy) return;
+                clearTimeout(watcherTimer);
+                watcherTimer = setTimeout(() => {
+                    watcherBusy = true;
+                    try { generatePresetIndex(); console.log('Preset index regenerated'); } catch(e) { console.warn('Regenerate failed:', e.message); }
+                    watcherBusy = false;
+                }, 3000);
+            });
+        } catch(e) { console.warn('Watch failed:', e.message); }
+    });
+})();

@@ -29,8 +29,9 @@
         .bg-layer {
             position: absolute;
             top: -20px; left: -20px; right: -20px; bottom: -20px;
-            background-size: cover;
-            background-position: center;
+            background-image: linear-gradient(135deg, #e74c3c, #8e44ad, #3498db);
+            background-size: 400% 400%;
+            background-position: 0% 50%;
             z-index: 0;
             transition: filter 0.3s ease, opacity 0.3s ease;
         }
@@ -38,6 +39,7 @@
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
             z-index: 1;
+            background: rgba(20,20,30,0.85);
         }
         .mini-container > *:not(.bg-layer):not(.bg-overlay) {
             position: relative;
@@ -174,6 +176,21 @@
 
     <script>
         let currentData = {};
+        let localChannel = null;
+        let lastLocalUpdate = 0;
+
+        // Listen for local BroadcastChannel updates
+        try {
+            localChannel = new BroadcastChannel('salt-player-state');
+            localChannel.onmessage = function(e) {
+                if (e.data) {
+                    currentData = e.data;
+                    updateUI(e.data);
+                    applyMiniSettings();
+                    lastLocalUpdate = Date.now();
+                }
+            };
+        } catch(e) {}
 
         function formatTime(s) {
             if (!s || s === Infinity) return '0:00';
@@ -183,6 +200,8 @@
         }
 
         async function fetchState() {
+            // Skip server fetch if we just got a local update (within 1 second)
+            if (Date.now() - lastLocalUpdate < 1000) return;
             try {
                 const resp = await fetch('/api/state');
                 if (!resp.ok) return;
@@ -190,30 +209,23 @@
                 currentData = data;
                 updateUI(data);
                 applyMiniSettings();
-            } catch (e) {
-                console.error('Fetch error:', e);
-            }
+            } catch (e) {}
         }
 
         function updateUI(data) {
             document.getElementById('track-title').textContent = data.title || '-';
             document.getElementById('track-artist').textContent = data.artist || '-';
-            // 使用原始封面URL显示封面图片（支持跨域）
             document.getElementById('album-cover').src = data.rawCoverUrl || data.coverUrl || '';
-            // 更新主题色
             if (data.accentColor) {
                 document.documentElement.style.setProperty('--rnp-accent-color', data.accentColor);
                 document.documentElement.style.setProperty('--rnp-accent-color-rgb', data.accentRgb || '120,120,120');
             }
-            // 进度
-            const current = formatTime(data.currentTime);
-            const duration = formatTime(data.duration);
-            document.getElementById('time-label').textContent = current + ' / ' + duration;
+            document.getElementById('time-label').textContent = formatTime(data.currentTime) + ' / ' + formatTime(data.duration);
             if (data.duration > 0) {
                 document.getElementById('progress-fill').style.width = (data.currentTime / data.duration * 100) + '%';
             }
 
-            // 歌词
+            // Lyrics
             const settings = loadMiniSettings();
             const lyricsSection = document.getElementById('lyrics-section');
             if (data.lyrics && data.currentLyricIndex >= 0 && lyricsSection) {
@@ -225,11 +237,9 @@
                 
                 lyricsSection.innerHTML = '';
                 
-                // 只显示当前句和未播放的歌词（共totalLines句）
                 for (let i = 0; i < totalLines; i++) {
                     const lyricIdx = idx + i;
                     if (lyricIdx < lyrics.length) {
-                        // 跳过空歌词行
                         if (!lyrics[lyricIdx]?.original && !lyrics[lyricIdx]?.translation) continue;
                         
                         const el = document.createElement('div');
@@ -246,7 +256,6 @@
                         }
                         lyricsSection.appendChild(el);
                         
-                        // 翻译单独一行（贴在原句下）
                         if (settings.showTranslation !== false && lyrics[lyricIdx]?.translation) {
                             const transEl = document.createElement('div');
                             transEl.className = 'lyric-translation';
@@ -258,7 +267,6 @@
                             }
                             lyricsSection.appendChild(transEl);
                         } else {
-                            // 没有翻译时给原句加间距
                             el.style.marginBottom = (settings.lyricSpacing || 4) + 'px';
                         }
                     }
@@ -267,8 +275,9 @@
         }
 
         function loadMiniSettings() {
-            try { return JSON.parse(localStorage.getItem('mini-settings') || '{}'); }
-            catch(e) { return {}; }
+            const defaults = { bgType: 'gradient', immersiveColor: 'primary', dynamicGradientSpeed: 15, dynamicGradientDarken: 30, dynamicGradientOpacity: 100, dynamicGradientBlur: 20, dynamicGradientFilterBright: true };
+            try { return Object.assign(defaults, JSON.parse(localStorage.getItem('mini-settings') || '{}')); }
+            catch(e) { return defaults; }
         }
 
         function getAccentColor() {
@@ -347,7 +356,7 @@
         // 渐变效果 - 使用调色板生成动态渐变
         function getGradientFromPalette(palette) {
             if (!palette || palette.length < 2) {
-                return 'linear-gradient(-45deg, #333, #666)';
+                return 'linear-gradient(-45deg, #e74c3c, #8e44ad, #3498db, #2ecc71)';
             }
             const colors = palette.slice(0, 6).map(([r, g, b]) => 'rgb(' + r + ',' + g + ',' + b + ')');
             return 'linear-gradient(-45deg, ' + colors.join(',') + ')';
@@ -369,8 +378,8 @@
             bgLayer.style.cssText = 'position:absolute;top:-20px;left:-20px;right:-20px;bottom:-20px;background-size:cover;background-position:center;z-index:0;';
             bgOverlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:1;';
 
-            // 设置背景图片
-            if (coverUrl && s.bgType !== 'none' && s.bgType !== 'solid') {
+            // 设置背景图片（渐变和纯色模式不使用封面）
+            if (coverUrl && s.bgType === 'blur') {
                 bgLayer.style.backgroundImage = 'url(' + coverUrl + ')';
             }
 
@@ -403,7 +412,7 @@
                     var gradient = getGradientFromPalette(filteredPalette);
                     bgLayer.style.backgroundImage = gradient;
                 } else {
-                    bgLayer.style.backgroundImage = 'linear-gradient(135deg, rgba(100,100,200,0.5), rgba(200,100,150,0.5))';
+                    bgLayer.style.backgroundImage = 'linear-gradient(135deg, #e74c3c, #8e44ad, #3498db)';
                 }
                 bgLayer.style.backgroundSize = '400% 400%';
                 bgLayer.style.animation = 'gradientShift ' + (s.dynamicGradientSpeed || 15) + 's ease infinite';

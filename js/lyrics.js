@@ -44,6 +44,17 @@ const LyricsEngine = (() => {
             const content = lrcMatch.groups.content.trim();
             const isInterlude = !content || /^[.…・]+$/.test(content);
 
+            // Parse word-by-word (karaoke) format: <00:01.00>word<00:01.50>word
+            var wordRegex = /<(\d+):(\d+)\.(\d+)>([^<]*)/g;
+            var words = [];
+            var wordMatch;
+            while ((wordMatch = wordRegex.exec(content)) !== null) {
+                var wMin = parseInt(wordMatch[1]);
+                var wSec = parseInt(wordMatch[2]);
+                var wMs = parseInt(wordMatch[3].padEnd(2, '0').slice(0, 2)) * 10;
+                words.push({ time: wMin * 60000 + wSec * 1000 + wMs + offset, text: wordMatch[4] });
+            }
+
             // Parse all timestamps
             let timestampMatch;
             const timestampRegex = /\[(\d+):(\d+)(?:\.|:)*(\d+)*\]/g;
@@ -52,7 +63,9 @@ const LyricsEngine = (() => {
                 const sec = parseInt(timestampMatch[2]);
                 const ms = timestampMatch[3] ? parseInt(timestampMatch[3].slice(0, 2).padEnd(2, '0')) * 10 : 0;
                 const time = min * 60000 + sec * 1000 + ms + offset;
-                result.push({ time, original: content, translation: '', isInterlude });
+                var entry = { time, original: content, translation: '', isInterlude };
+                if (words.length > 0) entry.words = words;
+                result.push(entry);
             }
         }
 
@@ -94,6 +107,17 @@ const LyricsEngine = (() => {
         return lyrics;
     }
 
+    function showStatus(text, duration) {
+        if (!contentEl) return;
+        contentEl.innerHTML = '';
+        var el = document.createElement('div');
+        el.className = 'lyrics-placeholder';
+        el.textContent = text;
+        el.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:20px;color:rgba(255,255,255,0.3);';
+        contentEl.appendChild(el);
+        if (duration) setTimeout(function() { if (el.parentNode) el.textContent = '暂无歌词'; }, duration);
+    }
+
     function renderLyrics() {
         if (!contentEl) return;
         contentEl.innerHTML = '';
@@ -106,6 +130,7 @@ const LyricsEngine = (() => {
             return;
         }
         var lyricAlign = (typeof Settings !== 'undefined') ? (Settings.get('lyricAlign') || 'center') : 'center';
+        var karaoke = (typeof Settings !== 'undefined') && Settings.get('karaokeLyrics');
         lyrics.forEach((line, index) => {
             if (line.isInterlude) return;
             var el = document.createElement('div');
@@ -114,7 +139,16 @@ const LyricsEngine = (() => {
             el.setAttribute('offset', '1');
             el.style.textAlign = lyricAlign;
             el.style.transformOrigin = lyricAlign === 'left' ? 'left center' : lyricAlign === 'right' ? 'right center' : 'center center';
-            var html = '<div class="lyric-original">' + esc(line.original) + '</div>';
+            var html = '';
+            if (karaoke && line.words && line.words.length > 0) {
+                html += '<div class="lyric-original">';
+                line.words.forEach(function(w, wi) {
+                    html += '<span class="karaoke-word" data-time="' + w.time + '">' + esc(w.text) + '</span>';
+                });
+                html += '</div>';
+            } else {
+                html += '<div class="lyric-original">' + esc(line.original) + '</div>';
+            }
             if (line.translation) html += '<div class="lyric-translation">' + esc(line.translation) + '</div>';
             el.innerHTML = html;
             el.addEventListener('click', () => {
@@ -136,6 +170,22 @@ const LyricsEngine = (() => {
         if (found !== currentLine) {
             currentLine = found;
             if (!userScrolling) updateLayout(false);
+        }
+        // Karaoke word highlighting
+        var karaoke = (typeof Settings !== 'undefined') && Settings.get('karaokeLyrics');
+        if (karaoke) {
+            var line = lyrics[currentLine];
+            if (line && line.words && line.words.length > 0) {
+                var lineEl = contentEl.querySelector('[data-index="' + currentLine + '"]');
+                if (lineEl) {
+                    var wordEls = lineEl.querySelectorAll('.karaoke-word');
+                    wordEls.forEach(function(wEl) {
+                        var wTime = parseInt(wEl.dataset.time);
+                        if (wTime <= timeMs) wEl.classList.add('active');
+                        else wEl.classList.remove('active');
+                    });
+                }
+            }
         }
         updateMobileLyrics(found);
     }
@@ -304,6 +354,8 @@ const LyricsEngine = (() => {
                 el.style.transformOrigin = lyricAlign === 'left' ? 'left center' : lyricAlign === 'right' ? 'right center' : 'center center';
             });
         }, 100);
+        
+        // 鼠标滚轮支持
         containerEl.addEventListener('wheel', function(e) {
             e.preventDefault();
             userScrolling = true;
@@ -320,6 +372,9 @@ const LyricsEngine = (() => {
             clearTimeout(wheelTimer);
             wheelTimer = setTimeout(function() { visualLine = -1; userScrolling = false; highlightVisual(currentLine, true); }, 3000);
         }, { passive: false });
+        
+        // ponytail: touch events removed per request
+        
         containerEl.addEventListener('mouseleave', function() { clearTimeout(wheelTimer); if (visualLine >= 0) { visualLine = -1; highlightVisual(currentLine, true); } });
     }
 
@@ -333,5 +388,5 @@ const LyricsEngine = (() => {
     }
     function getLyricAtTime(timeMs) { for (var i = lyrics.length - 1; i >= 0; i--) if (lyrics[i].time <= timeMs) return i; return 0; }
 
-    return { init, parseLRC, setLyrics, update, reset, getLyricAtTime, updateLayout, get currentLine() { return currentLine; }, get lyrics() { return lyrics; }, get isUnsynced() { return isUnsynced; }, overrides };
+    return { init, parseLRC, setLyrics, showStatus, update, reset, getLyricAtTime, updateLayout, get currentLine() { return currentLine; }, get lyrics() { return lyrics; }, get isUnsynced() { return isUnsynced; }, overrides };
 })();
